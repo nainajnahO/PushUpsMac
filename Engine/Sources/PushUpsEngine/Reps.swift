@@ -18,8 +18,29 @@ public struct Settings: Sendable, Codable, Equatable {
     public var repResetFraction = 0.20
     /// A phase starts and ends where the speed falls under this share of its fastest.
     public var concentricVelocityFraction = 0.10
+    /// Which span the push-up time reports.
+    public var metric = Metric.moving
+    /// Grade each rep's range of motion and back.
+    public var gradeROM = true
+    /// Down: the shoulder at most this many arm lengths above the wrist at the deepest point.
+    public var romDownHeight = 0.40
+    /// Up: the shoulder back to this share of the plank at lockout.
+    public var romUpFraction = 0.90
+    /// Frames in the median window around each extreme, so one bad pose can't decide a rep.
+    public var romSampleFrames = 5
+    /// Straight back: every frame from descent to lockout within this many degrees of the line.
+    public var backToleranceDegrees = 15.0
+    public var backSampleFrames = 5
 
     public static let demo = Settings()
+}
+
+/// Which span a rep's push-up time is (the demo's `REP_METRIC`).
+public enum Metric: String, Codable, Sendable, CaseIterable {
+    /// Leaving the bottom to lockout, leaving out a pause on the floor.
+    case moving
+    /// The deepest point to lockout, the pause included.
+    case ascent
 }
 
 /// One top-to-bottom-to-top cycle. Frames are source frames; times are seconds (frame / fps).
@@ -39,12 +60,23 @@ public struct Rep: Sendable, Equatable {
     public var lockoutTime: Double
     /// Arm lengths below the plank at the bottom of the cycle.
     public var depth: Double
+    /// Nil when grading is off.
+    public var grade: Grade?
 
     public var eccentricSeconds: Double { bottomTime - descentTime }
     /// Held at the bottom, between the descent dying away and the push starting.
     public var pauseSeconds: Double { max(0, pushTime - bottomTime) }
     public var concentricSeconds: Double { lockoutTime - pushTime }
     public var ascentSeconds: Double { lockoutTime - bottomTime }
+
+    /// The push-up time `metric` reports.
+    public func seconds(_ metric: Metric) -> Double {
+        metric == .moving ? concentricSeconds : ascentSeconds
+    }
+
+    /// Graded and full range; ungraded reads as complete.
+    public var complete: Bool { grade?.complete ?? true }
+    public var straight: Bool { grade?.backOK ?? true }
 }
 
 /// The analysis of a clip: every per-frame series, the levels, and the reps.
@@ -67,6 +99,17 @@ public struct RepAnalysis: Sendable {
     public var reps: [Rep]
 
     public var count: Int { reps.count }
+
+    /// Full range, straight back, graded.
+    public var tally: (full: Int, straight: Int, graded: Int) {
+        let graded = reps.compactMap(\.grade)
+        return (graded.count { $0.complete }, graded.count { $0.backOK }, graded.count)
+    }
+
+    /// Reps locked out by `frame`: their grade and time are final there.
+    public func done(at frame: Int) -> [Rep] {
+        reps.filter { $0.lockoutFrame <= frame }
+    }
 }
 
 /// The demo's `analyze`: builds the depth signal, counts reps off it and times each one's phases.
@@ -104,12 +147,16 @@ public func analyze(_ poses: Poses, settings: Settings = .demo) -> RepAnalysis {
         // on the floor: the pause belongs between it and the push.
         let settle = walk(fall, from: fastestDown, within: start...bottom, step: 1, fraction: fraction)
         let low = min(settle, push)
+        let grade = settings.gradeROM
+            ? Grade(height: raw, line: line, elbow: elbow, plank: top, span: descent...lockout, push: push...lockout,
+                    settings: settings)
+            : nil
         reps.append(Rep(number: n + 1,
                         descentFrame: indices[descent], bottomFrame: indices[low],
                         pushFrame: indices[push], lockoutFrame: indices[lockout],
                         descentTime: times[descent], bottomTime: times[low],
                         pushTime: times[push], lockoutTime: times[lockout],
-                        depth: depth[bottom]))
+                        depth: depth[bottom], grade: grade))
     }
     return RepAnalysis(indices: indices, times: times, side: side, arm: arm, raw: raw, height: height, top: top,
                        line: line, elbow: elbow, reps: reps)
