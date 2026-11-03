@@ -108,6 +108,8 @@ public struct RepAnalysis: Sendable {
     /// Near elbow, degrees: reported beside the grade, not graded.
     public var elbow: [Double]
     public var reps: [Rep]
+    /// The athlete on each returned frame (the first person `dedupe` keeps), for the overlay.
+    public var athletes: [Poses.Person?]
 
     public var count: Int { reps.count }
 
@@ -170,7 +172,7 @@ public func analyze(_ poses: Poses, settings: Settings = .demo) -> RepAnalysis {
                         depth: depth[bottom], grade: grade))
     }
     return RepAnalysis(indices: indices, times: times, side: side, arm: arm, raw: raw, height: height, top: top,
-                       line: line, elbow: elbow, reps: reps)
+                       line: line, elbow: elbow, reps: reps, athletes: frames.map(\.first))
 }
 
 /// The demo's `_cycles`: each rep's (start, bottom) by hysteresis. Armed near the top, confirmed

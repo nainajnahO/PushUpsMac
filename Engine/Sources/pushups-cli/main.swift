@@ -33,6 +33,17 @@ case "draw":
     let indices = Set(list.split(separator: ",").map { number(String($0)) as Int })
     try await drawPoses(of: URL(filePath: arguments[0]), poses: arguments.dropFirst().map { URL(filePath: $0) },
                         frames: indices, to: URL(filePath: output), trim: trim)
+case "overlay":
+    // pushups-cli overlay <clip> <poses.json> --frames N,N,... -o <folder> [--full] [--trim S]: the
+    // listed frames with the app's overlay drawn on them (by SwiftUI), as PNGs.
+    arguments.removeFirst()
+    let trim = option("--trim").map { number($0) as Double }
+    let full = arguments.contains("--full")
+    arguments.removeAll { $0 == "--full" }
+    guard let list = option("--frames"), let output = option("-o"), arguments.count == 2 else { usage() }
+    try await drawOverlay(of: URL(filePath: arguments[0]), poses: URL(filePath: arguments[1]),
+                          frames: Set(list.split(separator: ",").map { number(String($0)) as Int }),
+                          to: URL(filePath: output), style: full ? .full : .near, trim: trim)
 case "analyze":
     // pushups-cli analyze <clip | poses.json> -o <folder> [--trim S] [--down ARMS] [--up FRACTION]
     // [--back-tolerance DEG] [--metric moving|ascent] [--side auto|left|right]: the demo's reports.
@@ -56,6 +67,7 @@ func usage() -> Never {
         Usage: pushups-cli frames <clip> [--trim SECONDS] [--height PX] [--png INDEX FILE] [--jpeg FOLDER]
                pushups-cli poses <clip> -o <poses.json> [--trim SECONDS] [--height PX]
                pushups-cli draw <clip> <poses.json>... --frames N,N,... -o <folder> [--trim SECONDS]
+               pushups-cli overlay <clip> <poses.json> --frames N,N,... -o <folder> [--full] [--trim SECONDS]
                pushups-cli analyze <clip | poses.json> -o <folder> [--trim SECONDS] [--down ARMS] [--up FRACTION]
                                    [--back-tolerance DEG] [--metric moving|ascent] [--side auto|left|right]
         """)
@@ -213,4 +225,24 @@ func writeAnalysis(of url: URL, to folder: URL, settings: Settings, trim: Double
     try analysis.writeReports(to: folder, poses: poses, settings: settings)
     print(analysis.summaryText(videoSeconds: Double(poses.video.nFrames) / poses.video.fps, source: poses.video.source,
                                settings: settings), terminator: "")
+}
+
+/// The listed frames with the app's overlay (the app's default settings), rendered by SwiftUI.
+@MainActor func drawOverlay(of url: URL, poses: URL, frames indices: Set<Int>, to folder: URL, style: OverlayStyle,
+                 trim: Double?) async throws {
+    let analysis = analyze(try Poses(contentsOf: poses), settings: .app)
+    let frames = try await Clip(url: url).frames(height: 1080, trim: trim)
+    let context = CIContext()
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    while let frame = try await frames.next() {
+        guard indices.contains(frame.index) else { continue }
+        let overlay = analysis.overlay(atSourceFrame: frame.index, tolerance: Settings.app.backToleranceDegrees)
+        guard let image = frame.rendered(with: overlay, style: style, context: context),
+              let destination = CGImageDestinationCreateWithURL(
+                folder.appending(component: "\(url.deletingPathExtension().lastPathComponent)-\(frame.index)-\(style.rawValue).png") as CFURL,
+                "public.png" as CFString, 1, nil)
+        else { throw ClipError.unreadable(url, nil) }
+        CGImageDestinationAddImage(destination, image, nil)
+        CGImageDestinationFinalize(destination)
+    }
 }

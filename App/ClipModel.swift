@@ -14,6 +14,8 @@ final class ClipModel {
     private(set) var poses: Poses?
     private(set) var analysis: RepAnalysis?
     var settings = Settings.app
+    /// The demo's `OVERLAY`: the measured near side, or the whole skeleton.
+    var overlayStyle = OverlayStyle.near
     /// Of the poses, 0 to 1, while Vision runs.
     private(set) var progress = 0.0
     private(set) var isPosing = false
