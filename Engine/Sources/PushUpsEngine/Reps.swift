@@ -32,7 +32,18 @@ public struct Settings: Sendable, Codable, Equatable {
     public var backToleranceDegrees = 15.0
     public var backSampleFrames = 5
 
+    /// The demo's `config.py`: what the parity tests and `pushups-cli` use.
     public static let demo = Settings()
+
+    /// The app's defaults, for Apple Vision's keypoints and a phone on the floor: the demo's, with
+    /// the down height at 0.70 (from 0.40) and the back tolerance at 14° (from 15°). Measured on
+    /// the test clips against your own counts, and explained in docs/porting.md.
+    public static let app: Settings = {
+        var settings = Settings()
+        settings.romDownHeight = 0.70
+        settings.backToleranceDegrees = 14
+        return settings
+    }()
 }
 
 /// Which span a rep's push-up time is (the demo's `REP_METRIC`).
