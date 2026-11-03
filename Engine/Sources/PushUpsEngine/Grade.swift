@@ -94,3 +94,29 @@ public struct RepSummary: Sendable, Equatable {
 func mean(_ values: [Double]) -> Double {
     values.reduce(0, +) / Double(values.count)
 }
+
+/// One rep as the app lists it: where it starts (a click jumps there), its times, and its grade,
+/// the values `reps.json`'s `reps_detail` holds for it.
+public struct RepRow: Identifiable, Sendable, Equatable {
+    /// The rep's number.
+    public var id: Int
+    public var startSeconds: Double
+    public var downSeconds: Double
+    public var pauseSeconds: Double
+    /// By the metric: leaving the bottom to lockout (moving), or the deepest point to lockout (ascent).
+    public var pushUpSeconds: Double
+    /// "full", "not to the floor", "not back up"; nil if the rep wasn't graded.
+    public var range: String?
+    /// "straight", "hips low", "hips high", "unseen"; nil if the rep wasn't graded.
+    public var back: String?
+    public var complete: Bool
+    public var straight: Bool
+}
+
+extension Rep {
+    public func row(metric: Metric) -> RepRow {
+        RepRow(id: number, startSeconds: descentTime, downSeconds: eccentricSeconds, pauseSeconds: pauseSeconds,
+               pushUpSeconds: seconds(metric), range: grade?.reason, back: grade?.backLabel,
+               complete: complete, straight: straight)
+    }
+}

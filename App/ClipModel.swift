@@ -13,7 +13,10 @@ final class ClipModel {
     private(set) var player: AVPlayer?
     private(set) var poses: Poses?
     private(set) var analysis: RepAnalysis?
-    var settings = Settings.app
+    /// The analysis's settings, from the sidebar: each change re-grades at once, from the same poses.
+    var settings = Settings.app {
+        didSet { reanalyze() }
+    }
     /// The source frame on screen, for the overlay and the panel: AVFoundation calls back with the
     /// player's time once a frame while it plays, and on every seek or scrub, and not at all while
     /// it's paused, so nothing redraws a still frame (a `TimelineView` redrew both 60 times a second).
@@ -95,6 +98,12 @@ final class ClipModel {
         self.analysis = analysis
         let (full, straight, graded) = analysis.tally
         log.notice("\(analysis.count) reps, \(full)/\(graded) full range, \(straight)/\(graded) straight back, in \((ContinuousClock.now - start) / .milliseconds(1), format: .fixed(precision: 1)) ms")
+    }
+
+    /// Shows the rep from where it starts going down.
+    func jump(to rep: RepRow) {
+        player?.seek(to: CMTime(seconds: rep.startSeconds, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
+        log.notice("jumped to rep \(rep.id) at \(rep.startSeconds, format: .fixed(precision: 2)) s")
     }
 
     private func follow(_ time: CMTime) {
