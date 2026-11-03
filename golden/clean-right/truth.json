@@ -1,0 +1,12 @@
+{
+  "clip": "clean-right.mov",
+  "shows": "A clean set.",
+  "facing": "right",
+  "trim_seconds": null,
+  "reps": 3,
+  "per_rep": [
+    {"rep": 1, "reason": "full", "back": "straight"},
+    {"rep": 2, "reason": "full", "back": "straight"},
+    {"rep": 3, "reason": "full", "back": "straight"}
+  ]
+}

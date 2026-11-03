@@ -1,0 +1,12 @@
+{
+  "clip": "hips-low.mov",
+  "shows": "Full reps with the hips sagging.",
+  "facing": "left",
+  "trim_seconds": null,
+  "reps": 3,
+  "per_rep": [
+    {"rep": 1, "reason": "full", "back": "hips low"},
+    {"rep": 2, "reason": "full", "back": "hips low"},
+    {"rep": 3, "reason": "full", "back": "hips low"}
+  ]
+}

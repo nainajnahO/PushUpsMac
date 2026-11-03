@@ -1,0 +1,13 @@
+{
+  "clip": "fast-reps.mov",
+  "shows": "A clean set, the first three fast.",
+  "facing": "left",
+  "trim_seconds": null,
+  "reps": 4,
+  "per_rep": [
+    {"rep": 1, "reason": "full", "back": "straight", "note": "fast"},
+    {"rep": 2, "reason": "full", "back": "straight", "note": "fast"},
+    {"rep": 3, "reason": "full", "back": "straight", "note": "fast"},
+    {"rep": 4, "reason": "full", "back": "straight"}
+  ]
+}
