@@ -12,13 +12,17 @@ struct ContentView: View {
                 .navigationSplitViewColumnWidth(min: 220, ideal: 260)
         } detail: {
             if let player = model.player {
-                PlayerView(player: player)
-                    .overlay {
-                        if let analysis = model.analysis, let poses = model.poses {
-                            PlayerOverlay(player: player, analysis: analysis, video: poses.video,
-                                          tolerance: model.settings.backToleranceDegrees, style: model.overlayStyle)
+                VStack(spacing: 0) {
+                    PlayerView(player: player)
+                        .overlay {
+                            if let analysis = model.analysis, let poses = model.poses {
+                                PlayerOverlay(analysis: analysis, video: poses.video)
+                            }
                         }
+                    if let analysis = model.analysis, let poses = model.poses {
+                        PlayerPanel(analysis: analysis, video: poses.video)
                     }
+                }
             } else {
                 ContentUnavailableView("No Clip", systemImage: "figure.strengthtraining.functional",
                                        description: Text("Open a side-on clip of push-ups, or drop one here."))
@@ -75,30 +79,40 @@ struct ResultList: View {
     }
 }
 
-/// The overlay on the playing clip, on every display frame at the player's own time, so it follows
-/// playback and scrubbing alike. Drawn in the rectangle the video fills (aspect fit, as the player
-/// shows it), and clicks go through to the player's controls.
+/// The overlay on the playing clip, on the model's playhead, so it follows playback and scrubbing
+/// alike. Drawn in the rectangle the video fills (aspect fit, as the player shows it), and clicks go
+/// through to the player's controls. Only this view and the panel read the playhead, so only they
+/// redraw as it moves.
 struct PlayerOverlay: View {
-    let player: AVPlayer
+    @Environment(ClipModel.self) private var model
     let analysis: RepAnalysis
     let video: Poses.Video
-    let tolerance: Double
-    let style: OverlayStyle
 
     var body: some View {
         GeometryReader { geometry in
             let rect = AVMakeRect(aspectRatio: CGSize(width: video.width, height: video.height),
                                   insideRect: CGRect(origin: .zero, size: geometry.size))
-            TimelineView(.animation) { _ in
-                let frame = analysis.sourceFrame(at: player.currentTime().seconds, fps: video.fps)
-                if let overlay = analysis.overlay(atSourceFrame: frame, tolerance: tolerance) {
-                    OverlayView(frame: overlay, style: style)
-                        .frame(width: rect.width, height: rect.height)
-                        .position(x: rect.midX, y: rect.midY)
-                }
+            if let overlay = analysis.overlay(atSourceFrame: model.playhead, tolerance: model.settings.backToleranceDegrees) {
+                OverlayView(frame: overlay, style: model.overlayStyle)
+                    .frame(width: rect.width, height: rect.height)
+                    .position(x: rect.midX, y: rect.midY)
             }
         }
         .allowsHitTesting(false)
+    }
+}
+
+/// The panel under the clip, on the model's playhead, as the overlay is. As wide as the window, and
+/// as high as the export's panel is for its width (1080 × 472).
+struct PlayerPanel: View {
+    @Environment(ClipModel.self) private var model
+    let analysis: RepAnalysis
+    let video: Poses.Video
+
+    var body: some View {
+        PanelView(analysis: analysis, settings: model.settings, fps: video.fps, frames: video.nFrames,
+                  playhead: model.playhead)
+            .aspectRatio(1080 / 472, contentMode: .fit)
     }
 }
 

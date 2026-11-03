@@ -14,6 +14,10 @@ final class ClipModel {
     private(set) var poses: Poses?
     private(set) var analysis: RepAnalysis?
     var settings = Settings.app
+    /// The source frame on screen, for the overlay and the panel: AVFoundation calls back with the
+    /// player's time once a frame while it plays, and on every seek or scrub, and not at all while
+    /// it's paused, so nothing redraws a still frame (a `TimelineView` redrew both 60 times a second).
+    private(set) var playhead = 0
     /// The demo's `OVERLAY`: the measured near side, or the whole skeleton.
     var overlayStyle = OverlayStyle.near
     /// Of the poses, 0 to 1, while Vision runs.
@@ -25,6 +29,7 @@ final class ClipModel {
     private let engine = PoseEngine()
     private var posing: Task<Void, Never>?
     private var playback: NSKeyValueObservation?
+    private var ticks: Any?
     private var scopedURL: URL?
 
     /// The window's subtitle: what's happening, or the result.
@@ -44,14 +49,18 @@ final class ClipModel {
         scopedURL?.stopAccessingSecurityScopedResource()
         scopedURL = securityScoped && url.startAccessingSecurityScopedResource() ? url : nil
         self.url = url
+        if let ticks { self.player?.removeTimeObserver(ticks) }
+        ticks = nil
         let player = AVPlayer(url: url)
         self.player = player
         playback = player.observe(\.timeControlStatus) { player, _ in
             let status = player.timeControlStatus
             let time = player.currentTime().seconds
-            Task { @MainActor in log.notice("player \(status == .playing ? "playing" : "paused", privacy: .public) at \(time, format: .fixed(precision: 2)) s") }
+            Task { @MainActor in
+                log.notice("player \(status == .playing ? "playing" : "paused", privacy: .public) at \(time, format: .fixed(precision: 2)) s, playhead on frame \(self.playhead)")
+            }
         }
-        (poses, analysis, failure, progress, isPosing) = (nil, nil, nil, 0, true)
+        (poses, analysis, failure, progress, isPosing, playhead) = (nil, nil, nil, 0, true, 0)
         log.notice("opened \(url.lastPathComponent, privacy: .public)")
         posing = Task {
             let start = ContinuousClock.now
@@ -64,6 +73,10 @@ final class ClipModel {
                 self.poses = poses
                 isPosing = false
                 reanalyze()
+                let frame = CMTime(seconds: 1 / poses.video.fps, preferredTimescale: 600)
+                ticks = player.addPeriodicTimeObserver(forInterval: frame, queue: .main) { [weak model = self] time in
+                    MainActor.assumeIsolated { model?.follow(time) }
+                }
                 player.play()
             } catch {
                 guard !Task.isCancelled else { return }
@@ -82,6 +95,12 @@ final class ClipModel {
         self.analysis = analysis
         let (full, straight, graded) = analysis.tally
         log.notice("\(analysis.count) reps, \(full)/\(graded) full range, \(straight)/\(graded) straight back, in \((ContinuousClock.now - start) / .milliseconds(1), format: .fixed(precision: 1)) ms")
+    }
+
+    private func follow(_ time: CMTime) {
+        guard let analysis, let poses else { return }
+        let frame = analysis.sourceFrame(at: time.seconds, fps: poses.video.fps)
+        if frame != playhead { playhead = frame }
     }
 
     func importFailed(_ error: any Error) {
