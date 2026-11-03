@@ -1,0 +1,56 @@
+name: Bug report
+description: Something in PushUpsMac doesn't work as it should, or counts or grades a rep wrongly.
+labels: [bug]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened, and what did you expect?
+      description: For a miscounted or misgraded rep, which rep, and what you'd have counted.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: >
+        A clip shows you, so don't attach it unless you're happy for it to be public. Its poses are enough for most
+        bugs, and show only a stick figure: `pushups-cli poses clip.mov -o poses.json`, zipped if GitHub won't take it.
+      placeholder: |
+        1. Open a clip
+        2. Change …
+        3. …
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: PushUpsMac version
+      description: In PushUpsMac › About PushUpsMac, or the commit you built.
+      placeholder: "0.1"
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+      description: In Apple menu › About This Mac.
+      placeholder: "27.2"
+    validations:
+      required: true
+  - type: input
+    id: mac
+    attributes:
+      label: Mac
+      placeholder: MacBook Pro, M1 Pro, 16 GB
+  - type: input
+    id: clip
+    attributes:
+      label: The clip
+      description: What filmed it, its frame rate, and whether it's HDR; or the camera, if it was live.
+      placeholder: iPhone 17 Pro, 4K at 30 fps, HDR
+  - type: textarea
+    id: python
+    attributes:
+      label: Does the Python demo count it differently?
+      description: If you ran vision-demos' push_ups on the same clip, which commit, and what it said.
