@@ -45,8 +45,8 @@ struct Dump: Decodable {
     let reps_json: String, summary_txt: String, summary_csv: String, frames_csv: String
 }
 
-/// Every golden case: the hand-made figure, and Vision's poses on each test clip.
-let goldenCases = [("synthetic", "handmade")] + clipNames.map { ($0, "vision") }
+/// Every golden case: the hand-made figure, and Vision's and ViTPose's poses on each test clip.
+let goldenCases = [("synthetic", "handmade")] + clipNames.flatMap { [($0, "vision"), ($0, "vitpose")] }
 
 func loadCase(_ name: String, _ model: String) throws -> (Poses, Dump) {
     let poses = try Poses(contentsOf: golden(name, "poses-\(model).json"))

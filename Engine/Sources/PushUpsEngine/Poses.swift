@@ -35,6 +35,12 @@ public struct Poses: Codable, Sendable {
         enum CodingKeys: String, CodingKey {
             case fps, width, height, nFrames = "n_frames", source, model, msPerFrame = "ms_per_frame"
         }
+
+        public init(fps: Double, width: Int, height: Int, nFrames: Int, source: String, model: String? = nil,
+                    msPerFrame: Double? = nil) {
+            (self.fps, self.width, self.height, self.nFrames) = (fps, width, height, nFrames)
+            (self.source, self.model, self.msPerFrame) = (source, model, msPerFrame)
+        }
     }
 
     public struct Content: Codable, Sendable {
