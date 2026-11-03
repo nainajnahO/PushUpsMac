@@ -15,9 +15,22 @@
 		5E0000000000000000000006 /* Engine */ = {isa = PBXFileReference; lastKnownFileType = wrapper; path = Engine; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		5E0000000000000000000040 /* Exceptions for "App" folder in "PushUpsMac" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 5E0000000000000000000010 /* PushUpsMac */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		5E0000000000000000000005 /* App */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				5E0000000000000000000040 /* Exceptions for "App" folder in "PushUpsMac" target */,
+			);
 			path = App;
 			sourceTree = "<group>";
 		};
@@ -267,6 +280,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = App/Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.healthcare-fitness";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Apache-2.0. Based on the push-ups demo in vision-demos by Jeremy Park.";
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -298,6 +312,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = App/Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.healthcare-fitness";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Apache-2.0. Based on the push-ups demo in vision-demos by Jeremy Park.";
 				LD_RUNPATH_SEARCH_PATHS = (

@@ -195,7 +195,7 @@ extension Poses {
     /// Vision's body pose on every frame of `clip`, read at `height` up to `trim` seconds, one
     /// athlete per frame (``dedupe(_:maxPersons:iou:)``). `progress` hears each frame done.
     public static func detect(in clip: Clip, height: Int? = 1080, trim: Double? = nil,
-                              progress: (Int) -> Void = { _ in }) async throws -> Poses {
+                              progress: @Sendable (Int) -> Void = { _ in }) async throws -> Poses {
         let frames = try await clip.frames(height: height, trim: trim)
         var found: [[Person]] = []
         var visionTime = Duration.zero
