@@ -1,0 +1,12 @@
+{
+  "clip": "half-reps.mov",
+  "shows": "One full rep, then an upper half (from the top halfway down and back up), then a lower half (down to the floor and halfway up), where the set ends. After 8 s the athlete stands up, so only the first 8 s count.",
+  "facing": "left",
+  "trim_seconds": 8.0,
+  "reps": 3,
+  "per_rep": [
+    {"rep": 1, "reason": "full", "back": "straight"},
+    {"rep": 2, "reason": "not to the floor", "back": "straight"},
+    {"rep": 3, "reason": "not back up", "back": "straight"}
+  ]
+}

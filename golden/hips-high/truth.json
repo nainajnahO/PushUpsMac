@@ -1,0 +1,12 @@
+{
+  "clip": "hips-high.mov",
+  "shows": "Full reps with the hips piked high.",
+  "facing": "left",
+  "trim_seconds": null,
+  "reps": 3,
+  "per_rep": [
+    {"rep": 1, "reason": "full", "back": "hips high"},
+    {"rep": 2, "reason": "full", "back": "hips high"},
+    {"rep": 3, "reason": "full", "back": "hips high"}
+  ]
+}
