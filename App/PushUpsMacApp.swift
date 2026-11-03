@@ -1,3 +1,4 @@
+import PushUpsEngine
 import SwiftUI
 
 @main
@@ -16,6 +17,11 @@ struct PushUpsMacApp: App {
             CommandGroup(after: .newItem) {
                 Button("Open…", systemImage: "folder") { model.isImporting = true }
                     .keyboardShortcut("o", modifiers: .command)
+            }
+            CommandGroup(before: .toolbar) {
+                Toggle("Show Whole Skeleton", isOn: Binding { model.overlayStyle == .full } set: { model.overlayStyle = $0 ? .full : .near })
+                    .keyboardShortcut("k", modifiers: [.command, .shift])
+                Divider()
             }
         }
     }

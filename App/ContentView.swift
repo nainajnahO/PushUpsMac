@@ -13,6 +13,12 @@ struct ContentView: View {
         } detail: {
             if let player = model.player {
                 PlayerView(player: player)
+                    .overlay {
+                        if let analysis = model.analysis, let poses = model.poses {
+                            PlayerOverlay(player: player, analysis: analysis, video: poses.video,
+                                          tolerance: model.settings.backToleranceDegrees, style: model.overlayStyle)
+                        }
+                    }
             } else {
                 ContentUnavailableView("No Clip", systemImage: "figure.strengthtraining.functional",
                                        description: Text("Open a side-on clip of push-ups, or drop one here."))
@@ -66,6 +72,33 @@ struct ResultList: View {
                 }
             }
         }
+    }
+}
+
+/// The overlay on the playing clip, on every display frame at the player's own time, so it follows
+/// playback and scrubbing alike. Drawn in the rectangle the video fills (aspect fit, as the player
+/// shows it), and clicks go through to the player's controls.
+struct PlayerOverlay: View {
+    let player: AVPlayer
+    let analysis: RepAnalysis
+    let video: Poses.Video
+    let tolerance: Double
+    let style: OverlayStyle
+
+    var body: some View {
+        GeometryReader { geometry in
+            let rect = AVMakeRect(aspectRatio: CGSize(width: video.width, height: video.height),
+                                  insideRect: CGRect(origin: .zero, size: geometry.size))
+            TimelineView(.animation) { _ in
+                let frame = analysis.sourceFrame(at: player.currentTime().seconds, fps: video.fps)
+                if let overlay = analysis.overlay(atSourceFrame: frame, tolerance: tolerance) {
+                    OverlayView(frame: overlay, style: style)
+                        .frame(width: rect.width, height: rect.height)
+                        .position(x: rect.midX, y: rect.midY)
+                }
+            }
+        }
+        .allowsHitTesting(false)
     }
 }
 
