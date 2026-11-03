@@ -12,8 +12,9 @@ case "frames":
     let trim = option("--trim").map { number($0) as Double }
     let height = option("--height").map { number($0) as Int }
     let png = option("--png", count: 2).map { (number($0[0]) as Int, URL(filePath: $0[1])) }
+    let jpegs = option("--jpeg").map { URL(filePath: $0) }
     guard let path = arguments.first, arguments.count == 1 else { usage() }
-    try await printFrames(of: URL(filePath: path), height: height, trim: trim, png: png)
+    try await printFrames(of: URL(filePath: path), height: height, trim: trim, png: png, jpegs: jpegs)
 case "poses":
     // pushups-cli poses <clip> -o <poses.json> [--trim SECONDS] [--height PX]: Vision on every frame,
     // written as the demo's gateway replies.
@@ -52,7 +53,7 @@ default:
 
 func usage() -> Never {
     print("""
-        Usage: pushups-cli frames <clip> [--trim SECONDS] [--height PX] [--png INDEX FILE]
+        Usage: pushups-cli frames <clip> [--trim SECONDS] [--height PX] [--png INDEX FILE] [--jpeg FOLDER]
                pushups-cli poses <clip> -o <poses.json> [--trim SECONDS] [--height PX]
                pushups-cli draw <clip> <poses.json>... --frames N,N,... -o <folder> [--trim SECONDS]
                pushups-cli analyze <clip | poses.json> -o <folder> [--trim SECONDS] [--down ARMS] [--up FRACTION]
@@ -88,14 +89,26 @@ func badValue<T>() -> T {
 }
 
 /// Reads the clip's frames as the poses will, and prints the clip's geometry, frame rate and count.
-func printFrames(of url: URL, height: Int?, trim: Double?, png: (Int, URL)?) async throws {
+/// With `jpegs`, every frame goes there as `<index>.jpg`, with `frames.json` (the poses JSON's
+/// `video` object), for `tools/vitpose_poses.py` to pose the frames Vision sees.
+func printFrames(of url: URL, height: Int?, trim: Double?, png: (Int, URL)?, jpegs: URL?) async throws {
     let clip = try await Clip(url: url)
     let frames = try await clip.frames(height: height, trim: trim)
     let start = ContinuousClock.now
+    let context = CIContext()
+    if let jpegs { try FileManager.default.createDirectory(at: jpegs, withIntermediateDirectories: true) }
     while let frame = try await frames.next() {
         if let png, frame.index == png.0 {
             try frame.writePNG(to: png.1)
         }
+        try jpegs.map { try frame.writeJPEG(to: $0.appending(component: String(format: "%05d.jpg", frame.index)), context: context) }
+    }
+    if let jpegs {
+        let video = Poses.Video(fps: frames.fps, width: frames.width, height: frames.height, nFrames: frames.count,
+                                source: url.lastPathComponent)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        try encoder.encode(video).write(to: jpegs.appending(component: "frames.json"))
     }
     let seconds = (ContinuousClock.now - start) / .seconds(1)
     let times = frames.presentationTimes

@@ -202,6 +202,12 @@ public final class Frames {
 }
 
 extension Frame {
+    /// The frame as a JPEG at `url`, at quality 0.95.
+    public func writeJPEG(to url: URL, context: CIContext) throws {
+        try context.writeJPEGRepresentation(of: image, to: url, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                            options: [kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption: 0.95])
+    }
+
     /// The frame as a PNG at `url`.
     public func writePNG(to url: URL) throws {
         try CIContext().writePNGRepresentation(of: image, to: url, format: .RGBA8,
