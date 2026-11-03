@@ -44,6 +44,14 @@ case "overlay":
     try await drawOverlay(of: URL(filePath: arguments[0]), poses: URL(filePath: arguments[1]),
                           frames: Set(list.split(separator: ",").map { number(String($0)) as Int }),
                           to: URL(filePath: output), style: full ? .full : .near, trim: trim)
+case "panel":
+    // pushups-cli panel <poses.json> --frames N,N,... -o <folder> [--size W H]: the app's panel at the
+    // listed frames (the app's default settings), as PNGs, 1080 × 472 by default (the export's).
+    arguments.removeFirst()
+    let size = option("--size", count: 2).map { (number($0[0]) as Int, number($0[1]) as Int) } ?? (1080, 472)
+    guard let list = option("--frames"), let output = option("-o"), arguments.count == 1 else { usage() }
+    try drawPanel(poses: URL(filePath: arguments[0]), frames: list.split(separator: ",").map { number(String($0)) as Int },
+                  to: URL(filePath: output), size: size)
 case "analyze":
     // pushups-cli analyze <clip | poses.json> -o <folder> [--trim S] [--down ARMS] [--up FRACTION]
     // [--back-tolerance DEG] [--metric moving|ascent] [--side auto|left|right]: the demo's reports.
@@ -68,6 +76,7 @@ func usage() -> Never {
                pushups-cli poses <clip> -o <poses.json> [--trim SECONDS] [--height PX]
                pushups-cli draw <clip> <poses.json>... --frames N,N,... -o <folder> [--trim SECONDS]
                pushups-cli overlay <clip> <poses.json> --frames N,N,... -o <folder> [--full] [--trim SECONDS]
+               pushups-cli panel <poses.json> --frames N,N,... -o <folder> [--size W H]
                pushups-cli analyze <clip | poses.json> -o <folder> [--trim SECONDS] [--down ARMS] [--up FRACTION]
                                    [--back-tolerance DEG] [--metric moving|ascent] [--side auto|left|right]
         """)
@@ -241,6 +250,24 @@ func writeAnalysis(of url: URL, to folder: URL, settings: Settings, trim: Double
               let destination = CGImageDestinationCreateWithURL(
                 folder.appending(component: "\(url.deletingPathExtension().lastPathComponent)-\(frame.index)-\(style.rawValue).png") as CFURL,
                 "public.png" as CFString, 1, nil)
+        else { throw ClipError.unreadable(url, nil) }
+        CGImageDestinationAddImage(destination, image, nil)
+        CGImageDestinationFinalize(destination)
+    }
+}
+
+/// The app's panel at the listed frames, rendered by SwiftUI.
+@MainActor func drawPanel(poses url: URL, frames: [Int], to folder: URL, size: (Int, Int)) throws {
+    let poses = try Poses(contentsOf: url)
+    let analysis = analyze(poses, settings: .app)
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    let stem = (poses.video.source as NSString).deletingPathExtension
+    for frame in frames {
+        let view = PanelView(analysis: analysis, settings: .app, fps: poses.video.fps, frames: poses.video.nFrames,
+                             playhead: frame)
+        guard let image = view.rendered(width: size.0, height: size.1),
+              let destination = CGImageDestinationCreateWithURL(folder.appending(component: "\(stem)-panel-\(frame).png") as CFURL,
+                                                                "public.png" as CFString, 1, nil)
         else { throw ClipError.unreadable(url, nil) }
         CGImageDestinationAddImage(destination, image, nil)
         CGImageDestinationFinalize(destination)
