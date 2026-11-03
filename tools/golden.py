@@ -56,8 +56,8 @@ Floats are written in full (shortest round-trip), and NaN is `null`:
     tally         [full range, straight back, graded]
     reps_json     reps.json's text, as main.py writes it
     summary_txt   summary.txt's text (reps.summary_text)
-    summary_csv   <clip>_summary.csv's text (export.write)
-    frames_csv    <clip>_frames.csv's text (export.write)
+    summary_csv   <clip>_summary.csv's text (export.write), byte for byte: \r\n line ends
+    frames_csv    <clip>_frames.csv's text (export.write), likewise
 """
 
 from __future__ import annotations
@@ -169,8 +169,9 @@ def dump(poses_path: Path, out_path: Path, demo: Path, *, fps=None, width=None, 
     with tempfile.TemporaryDirectory() as tmp:
         stem = Path(source).stem
         summary_csv, frames_csv = export.write(analysis, Path(tmp), stem)
-        summary_csv = summary_csv.read_text() if summary_csv else ""
-        frames_csv = frames_csv.read_text() if frames_csv else ""
+        # As written, with the csv module's \r\n line ends (read_text would turn them into \n).
+        summary_csv = summary_csv.open(newline="").read() if summary_csv else ""
+        frames_csv = frames_csv.open(newline="").read() if frames_csv else ""
 
     result = {
         "made_by": {"script": "tools/golden.py", "vision_demos": COMMIT,

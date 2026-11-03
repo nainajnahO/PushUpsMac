@@ -32,6 +32,19 @@ case "draw":
     let indices = Set(list.split(separator: ",").map { number(String($0)) as Int })
     try await drawPoses(of: URL(filePath: arguments[0]), poses: arguments.dropFirst().map { URL(filePath: $0) },
                         frames: indices, to: URL(filePath: output), trim: trim)
+case "analyze":
+    // pushups-cli analyze <clip | poses.json> -o <folder> [--trim S] [--down ARMS] [--up FRACTION]
+    // [--back-tolerance DEG] [--metric moving|ascent] [--side auto|left|right]: the demo's reports.
+    arguments.removeFirst()
+    var settings = Settings.demo
+    let trim = option("--trim").map { number($0) as Double }
+    option("--down").map { settings.romDownHeight = number($0) }
+    option("--up").map { settings.romUpFraction = number($0) }
+    option("--back-tolerance").map { settings.backToleranceDegrees = number($0) }
+    option("--metric").map { settings.metric = Metric(rawValue: $0) ?? badValue() }
+    option("--side").map { settings.side = $0 == "auto" ? nil : Side(rawValue: $0) ?? badValue() }
+    guard let output = option("-o"), let path = arguments.first, arguments.count == 1 else { usage() }
+    try await writeAnalysis(of: URL(filePath: path), to: URL(filePath: output), settings: settings, trim: trim)
 default:
     print("pushups-cli — port of the vision-demos push-ups demo at \(PushUpsEngine.referenceCommit.prefix(7))")
     usage()
@@ -42,6 +55,8 @@ func usage() -> Never {
         Usage: pushups-cli frames <clip> [--trim SECONDS] [--height PX] [--png INDEX FILE]
                pushups-cli poses <clip> -o <poses.json> [--trim SECONDS] [--height PX]
                pushups-cli draw <clip> <poses.json>... --frames N,N,... -o <folder> [--trim SECONDS]
+               pushups-cli analyze <clip | poses.json> -o <folder> [--trim SECONDS] [--down ARMS] [--up FRACTION]
+                                   [--back-tolerance DEG] [--metric moving|ascent] [--side auto|left|right]
         """)
     exit(1)
 }
@@ -62,6 +77,10 @@ func fixed(_ value: Double, _ digits: Int) -> String {
 func number<T: LosslessStringConvertible>(_ text: String) -> T {
     guard let value = T(text) else { usage() }
     return value
+}
+
+func badValue<T>() -> T {
+    usage()
 }
 
 @MainActor func option(_ name: String) -> String? {
@@ -164,4 +183,21 @@ func drawPoses(of url: URL, poses urls: [URL], frames indices: Set<Int>, to fold
         CGImageDestinationAddImage(destination, drawn, nil)
         CGImageDestinationFinalize(destination)
     }
+}
+
+/// The demo's reports for a clip (posed by Vision first, the poses kept as poses.json beside them)
+/// or for a poses JSON, with the summary printed.
+func writeAnalysis(of url: URL, to folder: URL, settings: Settings, trim: Double?) async throws {
+    let poses: Poses
+    if url.pathExtension.lowercased() == "json" {
+        poses = try Poses(contentsOf: url)
+    } else {
+        poses = try await Poses.detect(in: Clip(url: url), trim: trim)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try poses.write(to: folder.appending(component: "poses.json"))
+    }
+    let analysis = analyze(poses, settings: settings)
+    try analysis.writeReports(to: folder, poses: poses, settings: settings)
+    print(analysis.summaryText(videoSeconds: Double(poses.video.nFrames) / poses.video.fps, source: poses.video.source,
+                               settings: settings), terminator: "")
 }
