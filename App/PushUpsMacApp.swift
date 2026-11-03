@@ -18,6 +18,11 @@ struct PushUpsMacApp: App {
                 Button("Open…", systemImage: "folder") { model.isImporting = true }
                     .keyboardShortcut("o", modifiers: .command)
             }
+            CommandGroup(replacing: .importExport) {
+                Button("Export…", systemImage: "square.and.arrow.up") { model.isChoosingExportFolder = true }
+                    .keyboardShortcut("e", modifiers: .command)
+                    .disabled(!model.canExport)
+            }
             CommandGroup(before: .toolbar) {
                 Toggle("Show Whole Skeleton", isOn: Binding { model.overlayStyle == .full } set: { model.overlayStyle = $0 ? .full : .near })
                     .keyboardShortcut("k", modifiers: [.command, .shift])

@@ -1,3 +1,4 @@
+import AppKit
 import AVFoundation
 import Observation
 import OSLog
@@ -26,6 +27,9 @@ final class ClipModel {
     /// Of the poses, 0 to 1, while Vision runs.
     private(set) var progress = 0.0
     private(set) var isPosing = false
+    /// Of the frames, 0 to 1, while exporting.
+    private(set) var exportProgress: Double?
+    var isChoosingExportFolder = false
     private(set) var failure: String?
     var isImporting = false
 
@@ -39,6 +43,7 @@ final class ClipModel {
     var status: String {
         if let failure { return failure }
         if isPosing { return "Finding the body… \(Int(progress * 100)) %" }
+        if let exportProgress { return "Exporting… \(Int(exportProgress * 100)) %" }
         guard let analysis else { return url == nil ? "" : "Opening…" }
         let (full, straight, graded) = analysis.tally
         let reps = analysis.count == 1 ? "1 rep" : "\(analysis.count) reps"
@@ -98,6 +103,36 @@ final class ClipModel {
         self.analysis = analysis
         let (full, straight, graded) = analysis.tally
         log.notice("\(analysis.count) reps, \(full)/\(graded) full range, \(straight)/\(graded) straight back, in \((ContinuousClock.now - start) / .milliseconds(1), format: .fixed(precision: 1)) ms")
+    }
+
+    var canExport: Bool { analysis != nil && exportProgress == nil }
+
+    /// Writes the annotated video and the reports, with the current settings and overlay, into a folder
+    /// named after the clip in `folder`, then shows the video in the Finder.
+    func export(to folder: URL) {
+        guard let url, let poses, let analysis, exportProgress == nil else { return }
+        let access = folder.startAccessingSecurityScopedResource()
+        let destination = folder.appending(component: "\(url.deletingPathExtension().lastPathComponent) push-ups")
+        let (settings, style) = (settings, overlayStyle)
+        exportProgress = 0
+        Task {
+            defer {
+                if access { folder.stopAccessingSecurityScopedResource() }
+                exportProgress = nil
+            }
+            let start = ContinuousClock.now
+            do {
+                let video = try await analysis.export(Clip(url: url), poses: poses, settings: settings, style: style,
+                                                      to: destination) { frame in
+                    self.exportProgress = Double(frame + 1) / Double(poses.video.nFrames)
+                }
+                log.notice("exported \(poses.video.nFrames) frames in \((ContinuousClock.now - start) / .seconds(1), format: .fixed(precision: 1)) s to \(video.path, privacy: .public)")
+                NSWorkspace.shared.activateFileViewerSelecting([video])
+            } catch {
+                failure = "Couldn't export \(url.lastPathComponent): \(error.localizedDescription)"
+                log.error("\(self.failure ?? "", privacy: .public)")
+            }
+        }
     }
 
     /// Shows the rep from where it starts going down.

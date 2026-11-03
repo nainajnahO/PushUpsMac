@@ -10,6 +10,15 @@ struct ContentView: View {
         NavigationSplitView {
             Sidebar()
                 .navigationSplitViewColumnWidth(min: 250, ideal: 290)
+                // On the sidebar, since a view takes one file importer: the window's opens clips.
+                .fileImporter(isPresented: $model.isChoosingExportFolder, allowedContentTypes: [.folder]) { result in
+                    switch result {
+                    case .success(let folder): model.export(to: folder)
+                    case .failure(let error): model.importFailed(error)
+                    }
+                }
+                .fileDialogConfirmationLabel("Export")
+                .fileDialogMessage("Choose where to save the annotated video and the reports.")
         } detail: {
             if let player = model.player {
                 VStack(spacing: 0) {
@@ -38,7 +47,15 @@ struct ContentView: View {
                         .controlSize(.small)
                         .help("Finding the body in every frame")
                 }
+                if let exportProgress = model.exportProgress {
+                    ProgressView(value: exportProgress)
+                        .progressViewStyle(.circular)
+                        .controlSize(.small)
+                        .help("Writing the annotated video")
+                }
                 Button("Open…", systemImage: "folder") { model.isImporting = true }
+                Button("Export…", systemImage: "square.and.arrow.up") { model.isChoosingExportFolder = true }
+                    .disabled(!model.canExport)
             }
         }
         .dropDestination(for: URL.self) { urls, _ in

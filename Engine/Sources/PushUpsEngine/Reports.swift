@@ -112,7 +112,9 @@ extension RepAnalysis {
     /// reps.json as the demo's `main.py` writes it: the settings, the summary and every series.
     public func repsJSON(fps: Double, settings: Settings) throws -> Data {
         let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .withoutEscapingSlashes]
+        // Sorted, so the same analysis writes the same bytes: JSONEncoder keeps no key order of its own
+        // (each run wrote a different one). The demo's file lists them as encoded; the values are equal.
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         return try encoder.encode(RepsFile(analysis: self, fps: fps, settings: settings))
     }
 
@@ -159,7 +161,7 @@ private func csv(_ header: [String], _ rows: [[String]]) -> String {
     return ([header] + rows).map { $0.map(field).joined(separator: ",") + "\r\n" }.joined()
 }
 
-/// reps.json's layout. The keys and their order are the demo's, so it's encoded by hand.
+/// reps.json's layout. The keys are the demo's, so it's encoded by hand.
 private struct RepsFile: Encodable {
     let analysis: RepAnalysis
     let fps: Double
