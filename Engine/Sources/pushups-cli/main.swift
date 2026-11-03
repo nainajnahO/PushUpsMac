@@ -56,15 +56,23 @@ case "analyze":
     // pushups-cli analyze <clip | poses.json> -o <folder> [--trim S] [--down ARMS] [--up FRACTION]
     // [--back-tolerance DEG] [--metric moving|ascent] [--side auto|left|right]: the demo's reports.
     arguments.removeFirst()
-    var settings = Settings.demo
+    let settings = settingOptions()
     let trim = option("--trim").map { number($0) as Double }
-    option("--down").map { settings.romDownHeight = number($0) }
-    option("--up").map { settings.romUpFraction = number($0) }
-    option("--back-tolerance").map { settings.backToleranceDegrees = number($0) }
-    option("--metric").map { settings.metric = Metric(rawValue: $0) ?? badValue() }
-    option("--side").map { settings.side = $0 == "auto" ? nil : Side(rawValue: $0) ?? badValue() }
     guard let output = option("-o"), let path = arguments.first, arguments.count == 1 else { usage() }
     try await writeAnalysis(of: URL(filePath: path), to: URL(filePath: output), settings: settings, trim: trim)
+case "export":
+    // pushups-cli export <clip> -o <folder> [--poses poses.json] [--full] [--trim S] and analyze's
+    // settings: the annotated video (square, 1080) and the reports, as `analyze` writes them. Without
+    // --poses, Vision poses the clip first and the poses are kept as poses.json beside them.
+    arguments.removeFirst()
+    let settings = settingOptions()
+    let trim = option("--trim").map { number($0) as Double }
+    let poses = option("--poses")
+    let full = arguments.contains("--full")
+    arguments.removeAll { $0 == "--full" }
+    guard let output = option("-o"), let path = arguments.first, arguments.count == 1 else { usage() }
+    try await exportClip(URL(filePath: path), poses: poses.map { URL(filePath: $0) }, to: URL(filePath: output),
+                         settings: settings, style: full ? .full : .near, trim: trim)
 default:
     print("pushups-cli — port of the vision-demos push-ups demo at \(PushUpsEngine.referenceCommit.prefix(7))")
     usage()
@@ -79,6 +87,9 @@ func usage() -> Never {
                pushups-cli panel <poses.json> --frames N,N,... -o <folder> [--size W H]
                pushups-cli analyze <clip | poses.json> -o <folder> [--trim SECONDS] [--down ARMS] [--up FRACTION]
                                    [--back-tolerance DEG] [--metric moving|ascent] [--side auto|left|right]
+               pushups-cli export <clip> -o <folder> [--poses <poses.json>] [--full] [--trim SECONDS]
+                                  [--down ARMS] [--up FRACTION] [--back-tolerance DEG] [--metric moving|ascent]
+                                  [--side auto|left|right]
         """)
     exit(1)
 }
@@ -103,6 +114,17 @@ func number<T: LosslessStringConvertible>(_ text: String) -> T {
 
 func badValue<T>() -> T {
     usage()
+}
+
+/// The analysis settings from the command line, the demo's by default.
+@MainActor func settingOptions() -> Settings {
+    var settings = Settings.demo
+    option("--down").map { settings.romDownHeight = number($0) }
+    option("--up").map { settings.romUpFraction = number($0) }
+    option("--back-tolerance").map { settings.backToleranceDegrees = number($0) }
+    option("--metric").map { settings.metric = Metric(rawValue: $0) ?? badValue() }
+    option("--side").map { settings.side = $0 == "auto" ? nil : Side(rawValue: $0) ?? badValue() }
+    return settings
 }
 
 @MainActor func option(_ name: String) -> String? {
@@ -272,4 +294,22 @@ func writeAnalysis(of url: URL, to folder: URL, settings: Settings, trim: Double
         CGImageDestinationAddImage(destination, image, nil)
         CGImageDestinationFinalize(destination)
     }
+}
+
+/// The annotated video and the reports, with the time it took and the video's size printed.
+@MainActor func exportClip(_ url: URL, poses posesURL: URL?, to folder: URL, settings: Settings, style: OverlayStyle,
+                           trim: Double?) async throws {
+    let clip = try await Clip(url: url)
+    let poses: Poses
+    if let posesURL {
+        poses = try Poses(contentsOf: posesURL)
+    } else {
+        poses = try await Poses.detect(in: clip, trim: trim)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try poses.write(to: folder.appending(component: "poses.json"))
+    }
+    let start = ContinuousClock.now
+    let video = try await analyze(poses, settings: settings).export(clip, poses: poses, settings: settings, style: style,
+                                                                     to: folder, trim: trim)
+    print("\(video.path): \(poses.video.nFrames) frames in \(fixed((ContinuousClock.now - start) / .seconds(1), 1)) s")
 }

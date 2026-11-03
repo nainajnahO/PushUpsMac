@@ -27,6 +27,8 @@ Two things are measured, and never mixed (see [PLAN.md](../PLAN.md#parity-strate
 | `_cycles`, `np.gradient`, `_walk`, the phases | `Reps.swift` | Same | Identical cycles, rep counts and frames; times 0 |
 | `form.grade`, the tallies, the summary numbers | `Grade.swift` | Same | Readings 0, verdicts and labels identical |
 | `summary_text`, the two CSVs, `reps.json` | `Reports.swift` | Same | summary.txt and both CSVs byte-identical, reps.json equal value for value |
+| `render.py`'s overlay, `panel.py` (OpenCV, matplotlib) | `OverlayView`, `PanelView` (SwiftUI `Canvas`, Swift Charts) | Apple's | Drawn, not measured: the same marks, colours and fixed axes; the panel's tallies equal the summary at the last frame |
+| The export: OpenCV's writer, then ffmpeg to H.264, square 1080 | `RepAnalysis.export` (`AVAssetWriter`, H.264, square 1080) | Apple's | Every frame of the clip, as long as it; the reports beside it identical to `pushups-cli analyze`'s |
 
 The 13 cases are a hand-made stick figure ([`golden/synthetic`](../golden/synthetic)), and Vision's and ViTPose's poses
 of each of the six test clips.
