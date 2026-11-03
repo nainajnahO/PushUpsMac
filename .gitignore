@@ -1,0 +1,10 @@
+.DS_Store
+xcuserdata/
+DerivedData/
+.build/
+.swiftpm/
+*.xcuserstate
+__pycache__/
+
+# Your own videos stay on your Mac; only keypoints and results go in golden/.
+clips/
