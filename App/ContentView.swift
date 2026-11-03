@@ -22,12 +22,12 @@ struct ContentView: View {
         } detail: {
             if let player = model.player {
                 VStack(spacing: 0) {
-                    PlayerView(player: player)
-                        .overlay {
-                            if let analysis = model.analysis, let poses = model.poses {
-                                PlayerOverlay(analysis: analysis, video: poses.video)
-                            }
+                    PlayerView(player: player) {
+                        if let analysis = model.analysis, let poses = model.poses {
+                            PlayerOverlay(analysis: analysis, video: poses.video)
+                                .environment(model)
                         }
+                    }
                     if let analysis = model.analysis, let poses = model.poses {
                         PlayerPanel(analysis: analysis, video: poses.video)
                     }
@@ -59,7 +59,10 @@ struct ContentView: View {
             }
         }
         .dropDestination(for: URL.self) { urls, _ in
-            guard let url = urls.first else { return false }
+            // Only a movie: anything else would close the open clip for a file the app can't read.
+            guard let url = urls.first,
+                  (try? url.resourceValues(forKeys: [.contentTypeKey]))?.contentType?.conforms(to: .movie) == true
+            else { return false }
             model.open(url, securityScoped: true)
             return true
         }
@@ -224,10 +227,12 @@ struct PlayerPanel: View {
     }
 }
 
-/// AVKit's player view. AppKit's `AVPlayerView`, not SwiftUI's `VideoPlayer`: on macOS 27.2,
+/// AVKit's player view, with `overlay` between the video and the player's controls, so the controls
+/// stay on top of it. AppKit's `AVPlayerView`, not SwiftUI's `VideoPlayer`: on macOS 27.2,
 /// `VideoPlayer` crashes as it's first shown (in AVKit's own type metadata, before any of this code).
-struct PlayerView: NSViewRepresentable {
+struct PlayerView<Overlay: View>: NSViewRepresentable {
     let player: AVPlayer
+    @ViewBuilder let overlay: Overlay
 
     func makeNSView(context: Context) -> AVPlayerView {
         let view = AVPlayerView()
@@ -237,10 +242,29 @@ struct PlayerView: NSViewRepresentable {
         // overlay (VisionKit's, 354 pt high) broke the layout once the panel made the player shorter.
         view.allowsVideoFrameAnalysis = false
         view.player = player
+        let host = PassThroughHostingView(rootView: overlay)
+        if let content = view.contentOverlayView {
+            host.frame = content.bounds
+            host.autoresizingMask = [.width, .height]
+            content.addSubview(host)
+        }
+        context.coordinator.host = host
         return view
     }
 
     func updateNSView(_ view: AVPlayerView, context: Context) {
         view.player = player
+        context.coordinator.host?.rootView = overlay
     }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    final class Coordinator {
+        var host: PassThroughHostingView<Overlay>?
+    }
+}
+
+/// A hosting view that clicks go through, to the player under it.
+final class PassThroughHostingView<Content: View>: NSHostingView<Content> {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }

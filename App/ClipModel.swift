@@ -85,6 +85,9 @@ final class ClipModel {
                 ticks = player.addPeriodicTimeObserver(forInterval: frame, queue: .main) { [weak model = self] time in
                     MainActor.assumeIsolated { model?.follow(time) }
                 }
+                // From the first frame: the player sat about half a second in by now (0.2 to 0.8 s on
+                // the test clips), so autoplay skipped the start.
+                await player.seek(to: .zero, toleranceBefore: .zero, toleranceAfter: .zero)
                 player.play()
             } catch {
                 guard !Task.isCancelled else { return }

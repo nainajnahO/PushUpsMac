@@ -133,7 +133,7 @@ public struct PanelView: View {
         }
         let cells: [(label: String, value: String, color: Color, size: CGFloat)] = [
             ("PUSH-UPS", "\(state.done.count)", Self.foreground, 40),
-            ("AVG PUSH-UP TIME", state.averageSeconds.map { String(format: "%.2fs", $0) } ?? "—",
+            ("AVG PUSH-UP TIME", state.averageSeconds.map { seconds($0, 2) } ?? "—",
              state.averageSeconds == nil ? Self.muted : Self.accent, 28),
             (label: "FULL RANGE", value: tally(state.full).0, color: tally(state.full).1, size: 28),
             (label: "STRAIGHT BACK", value: tally(state.straight).0, color: tally(state.straight).1, size: 28),
@@ -320,7 +320,7 @@ public struct PanelView: View {
                     .foregroundStyle(rep.straight ? Self.accent : OverlayView.bad).symbolSize(pow(2 * dot, 2))
                     .annotation(position: .top, spacing: 8 * s) {
                         if rep.number == done.last?.number {
-                            Text(String(format: "%.2fs", rep.seconds)).font(.system(size: 14 * s, weight: .medium))
+                            Text(seconds(rep.seconds, 2)).font(.system(size: 14 * s, weight: .medium))
                                 .foregroundStyle(Self.foreground)
                         }
                     }
@@ -337,12 +337,17 @@ public struct PanelView: View {
         .chartYAxis {
             AxisMarks(position: .leading, values: ticks) { value in
                 AxisTick(length: 3 * s, stroke: StrokeStyle(lineWidth: max(1, s))).foregroundStyle(Self.muted)
-                AxisValueLabel { tick(String(format: step < 0.1 || step == 0.25 ? "%.2fs" : "%.1fs", value.as(Double.self) ?? 0), s, width: labelWidth) }
+                AxisValueLabel { tick(seconds(value.as(Double.self) ?? 0, step < 0.1 || step == 0.25 ? 2 : 1), s, width: labelWidth) }
             }
         }
         .chartPlotStyle { plotArea($0, s, title: "Push-up time per rep") }
         .padding(.top, titleRoom(s))
     }
+}
+
+/// Seconds with the reader's decimal separator, as the app's sidebar writes them ("0.96s", "0,96s").
+private func seconds(_ value: Double, _ digits: Int) -> String {
+    value.formatted(.number.precision(.fractionLength(digits))) + "s"
 }
 
 extension PanelView {

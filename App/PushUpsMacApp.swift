@@ -12,6 +12,7 @@ struct PushUpsMacApp: App {
         }
         .defaultSize(width: 1100, height: 760)
         .commands {
+            SidebarCommands()
             // Nothing here prints.
             CommandGroup(replacing: .printItem) {}
             CommandGroup(after: .newItem) {
