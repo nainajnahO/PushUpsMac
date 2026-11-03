@@ -1,9 +1,8 @@
-import Accelerate
-
 // The rep signal's smoothing and its levels, as the demo's `src/reps.py` and `form.median_filter`
 // compute them. The filters, the gap fill and the percentile are written here, not taken from
-// Accelerate, where NumPy's exact definitions decide the result and nothing built in has them:
-// edge padding, NaN-skipping medians, `np.interp`'s ends and `np.percentile`'s interpolation.
+// Accelerate: NumPy's exact definitions decide the result, down to the order a sum is taken in,
+// and nothing built in has them (edge padding, NaN-skipping medians, `np.interp`'s ends,
+// `np.percentile`'s interpolation, `np.convolve`'s sums).
 
 /// `np.pad(x, k / 2, mode="edge")`, with an even `k` bumped to the next odd size, as both filters do.
 private func edgePadded(_ x: [Double], _ k: Int) -> (padded: [Double], k: Int) {
@@ -22,13 +21,19 @@ func medianFilter(_ x: [Double], _ k: Int) -> [Double] {
 }
 
 /// The demo's `_box_filter`: a centred moving average of `k` frames, edge-padded, so it doesn't
-/// shift turnaround times. `np.convolve` with `np.ones(k) / k`, by Accelerate's `vDSP_convD`.
+/// shift turnaround times: `np.convolve(pad, np.ones(k) / k, "valid")`.
+///
+/// Each window's sum is a fused multiply-add of its values in order, which is how NumPy's BLAS
+/// `ddot` sums them: that reproduces all 3,204 windows of the golden dumps to the bit. Accelerate's
+/// `vDSP.convolve` and its `cblas_ddot` each sum in another order and differ in the last bit,
+/// which flips the counting's exact ties (a rep's start moved a frame on ViTPose's clean-left).
 func boxFilter(_ x: [Double], _ k: Int) -> [Double] {
     guard k >= 2, !x.isEmpty else { return x }
     let (padded, k) = edgePadded(x, k)
-    var result = [Double](repeating: 0, count: x.count)
-    vDSP.convolve(padded, withKernel: [Double](repeating: 1 / Double(k), count: k), result: &result)
-    return result
+    let weight = 1 / Double(k)
+    return x.indices.map { i in
+        padded[i..<(i + k)].reduce(0) { sum, value in sum.addingProduct(value, weight) }
+    }
 }
 
 /// The demo's `_fill_gaps`: NaN filled by `np.interp` from the finite values around it, the ends
