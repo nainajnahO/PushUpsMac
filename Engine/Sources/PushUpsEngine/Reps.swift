@@ -89,6 +89,8 @@ public struct RepCounter: Sendable {
     public private(set) var times: [Double] = []
     /// Fixed once the plank is found.
     public private(set) var side: Side?
+    /// Which side Vision is surer of so far: the side picked at the plank, and drawn before it.
+    private(set) var confidence = SideConfidence()
     public private(set) var plank: Plank?
     /// The shoulder's height above the wrist, arm lengths, per frame: NaN until the plank is found (then
     /// filled in for the frames before it), and where Vision missed a joint.
@@ -149,6 +151,7 @@ public struct RepCounter: Sendable {
         precondition(!isFinished, "A finished set takes no more frames")
         poses.append(pose)
         times.append(pose.time)
+        confidence.add(pose)
         if plank == nil {
             raw.append(.nan)
             line.append(.nan)
@@ -184,7 +187,7 @@ public struct RepCounter: Sendable {
     /// steady, for `plankSeconds`. Once found, the side and the arm are fixed, and the frames so far measured.
     private mutating func findPlank() {
         let newest = poses.count - 1
-        let side = settings.side ?? pickSide(poses[...])
+        let side = settings.side ?? confidence.surer
         // From the latest frame at least `plankSeconds` before this one.
         guard let first = poses.lastIndex(where: { poses[newest].time - $0.time >= Self.plankSeconds }) else { return }
         let joints = poses[first...newest].map { NearSide($0, side: side, aspect: aspect) }

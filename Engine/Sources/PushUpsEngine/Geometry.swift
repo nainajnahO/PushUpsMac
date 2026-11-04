@@ -17,12 +17,18 @@ public enum Side: String, Codable, Sendable, CaseIterable {
     }
 }
 
-/// The side whose arm and leg Vision is surer of over `frames`, its confidences summed; a tie is the left.
-func pickSide(_ frames: ArraySlice<Pose>) -> Side {
-    func total(_ side: Side) -> Double {
-        frames.reduce(0) { sum, pose in side.joints.reduce(sum) { $0 + Double(pose.joints[$1]?.confidence ?? 0) } }
+/// Vision's confidence in each side's arm and leg, summed over the frames so far. Summed as each frame comes,
+/// so picking the side doesn't go back over every frame: before the plank, a live set picks it on every frame.
+struct SideConfidence {
+    private var left = 0.0, right = 0.0
+
+    mutating func add(_ pose: Pose) {
+        left = Side.left.joints.reduce(left) { $0 + Double(pose.joints[$1]?.confidence ?? 0) }
+        right = Side.right.joints.reduce(right) { $0 + Double(pose.joints[$1]?.confidence ?? 0) }
     }
-    return total(.right) > total(.left) ? .right : .left
+
+    /// The side Vision is surer of; a tie is the left.
+    var surer: Side { right > left ? .right : .left }
 }
 
 /// One side's joints on one frame, in frame heights: x is scaled by the aspect ratio, so angles and

@@ -41,7 +41,7 @@ extension RepCounter {
         else { return nil }
         let reading = line[frame]
         let bend: Bend? = reading.isFinite && abs(reading) > tolerance ? (reading < 0 ? .hipsLow : .hipsHigh) : nil
-        return OverlayFrame(joints: poses[held].joints.mapValues(\.location), side: side ?? pickSide(poses[...]),
+        return OverlayFrame(joints: poses[held].joints.mapValues(\.location), side: side ?? confidence.surer,
                             bend: bend)
     }
 }

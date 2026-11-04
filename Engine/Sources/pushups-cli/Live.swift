@@ -37,23 +37,39 @@ struct LiveRun {
 /// delivers, at `size` if given. Each posed frame is counted and its overlay built on the main actor, as the
 /// app does, and the set finished after the last.
 @MainActor
-func playLive(_ url: URL, size: CGSize?, trim: Double?, settings: Settings, recorder: LiveRecorder? = nil) async throws -> LiveRun {
+func playLive(_ url: URL, size: CGSize?, trim: Double?, settings: Settings, recorder: LiveRecorder? = nil,
+              loops: Int = 1) async throws -> LiveRun {
     let poser = LivePoser()
     let camera = Task.detached(priority: .userInitiated) {
-        try await deliver(url, size: size, trim: trim, to: poser, recording: recorder)
+        try await deliver(url, size: size, trim: trim, loops: loops, to: poser, recording: recorder)
     }
+    // A long session reports each minute: what Vision kept up with, the counter's slowest frame, and memory.
+    var minute = (start: ContinuousClock.now, received: 0, posed: 0, vision: [Double](), delays: [Double](), slowest: 0.0)
 
     var run = LiveRun(set: LiveSet(settings: settings))
     for await frame in poser.frames {
         recorder?.append(frame.pose, at: frame.presentationTime)
+        let adding = ContinuousClock.now
         let counted = run.set.add(frame)
         _ = run.set.overlay
+        minute.slowest = max(minute.slowest, (ContinuousClock.now - adding) / .seconds(1))
         // The overlay is ready, and any rep counted: what the app's views draw next.
         let now = ContinuousClock.now
         run.delays.append((now - frame.arrived) / .seconds(1))
         for rep in counted { run.counted.append((rep, now, (now - run.set.arrivals[rep.lockoutFrame]) / .seconds(1))) }
         run.frames.append(frame)
         (run.width, run.height) = (frame.width, frame.height)
+        minute.posed += 1
+        minute.vision.append(frame.visionSeconds)
+        minute.delays.append(run.delays.last ?? 0)
+        if loops > 1, now - minute.start >= .seconds(60) {
+            let received = poser.counts.received
+            print("  minute \(fixed(frame.pose.time / 60, 1)): posed \(minute.posed) of \(received - minute.received) frames, "
+                  + "Vision median \(fixed(median(minute.vision) * 1000, 1)) ms, frame to overlay median \(fixed(median(minute.delays) * 1000, 1)) ms, "
+                  + "counter's slowest frame \(fixed(minute.slowest * 1000, 2)) ms, \(run.set.counter?.count ?? 0) reps, "
+                  + "memory \(fixed(footprintMB(), 0)) MB")
+            minute = (now, received, 0, [], [], 0)
+        }
     }
     // The set ends with the clip: a rep still going counts now, if it's a push-up.
     let now = ContinuousClock.now
@@ -66,37 +82,44 @@ func playLive(_ url: URL, size: CGSize?, trim: Double?, settings: Settings, reco
 
 /// The camera's side of the stand-in: decodes the next frame, waits for its time, hands it over, and
 /// ends the frames after the last. Returns how late each frame was handed over, and the frames' span.
-private func deliver(_ url: URL, size: CGSize?, trim: Double?, to poser: LivePoser,
+/// With `loops` over 1, the clip plays that many times back to back, each time a frame after the last ended,
+/// as one long session.
+private func deliver(_ url: URL, size: CGSize?, trim: Double?, loops: Int, to poser: LivePoser,
                      recording recorder: LiveRecorder?) async throws -> (lateness: [Double], span: Double) {
     defer { poser.finish() }
     let asset = AVURLAsset(url: url)
     guard let track = try await asset.loadTracks(withMediaType: .video).first else { throw PosesError.noVideo(url) }
-    let reader = try AVAssetReader(asset: asset)
-    if let trim { reader.timeRange = CMTimeRange(start: .zero, duration: CMTime(seconds: trim, preferredTimescale: 600)) }
     var settings: [String: Any] = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange]
     if let size {
         settings[kCVPixelBufferWidthKey as String] = Int(size.width)
         settings[kCVPixelBufferHeightKey as String] = Int(size.height)
     }
-    let output = AVAssetReaderTrackOutput(track: track, outputSettings: settings)
-    let provider = reader.outputProvider(for: output)
-    try reader.start()
-
     let clock = ContinuousClock()
     var start: (pts: Double, clock: ContinuousClock.Instant)?
     var lateness: [Double] = [], span = 0.0
-    while let sample = try await provider.next() {
-        guard let frame = CMReadySampleBuffer<CVReadOnlyPixelBuffer>(sample) else { continue }
-        let pts = frame.presentationTimeStamp.seconds
-        let origin = start ?? (pts, clock.now)
-        start = origin
-        let due = origin.clock + .seconds(pts - origin.pts)
-        try await clock.sleep(until: due, tolerance: .zero)
-        lateness.append((clock.now - due) / .seconds(1))
-        // As the app's camera does: every frame into the recording, then Vision's turn.
-        recorder?.append(frame)
-        poser.receive(frame)
-        span = pts - origin.pts
+    var offset = CMTime.zero
+    for _ in 0..<loops {
+        let reader = try AVAssetReader(asset: asset)
+        if let trim { reader.timeRange = CMTimeRange(start: .zero, duration: CMTime(seconds: trim, preferredTimescale: 600)) }
+        let provider = reader.outputProvider(for: AVAssetReaderTrackOutput(track: track, outputSettings: settings))
+        try reader.start()
+        var (last, step) = (CMTime.zero, CMTime.zero)
+        while let sample = try await provider.next() {
+            guard var frame = CMReadySampleBuffer<CVReadOnlyPixelBuffer>(sample) else { continue }
+            (step, last) = (frame.presentationTimeStamp - last, frame.presentationTimeStamp)
+            frame.presentationTimeStamp = frame.presentationTimeStamp + offset
+            let pts = frame.presentationTimeStamp.seconds
+            let origin = start ?? (pts, clock.now)
+            start = origin
+            let due = origin.clock + .seconds(pts - origin.pts)
+            try await clock.sleep(until: due, tolerance: .zero)
+            lateness.append((clock.now - due) / .seconds(1))
+            // As the app's camera does: every frame into the recording, then Vision's turn.
+            recorder?.append(frame)
+            poser.receive(frame)
+            span = pts - origin.pts
+        }
+        offset = offset + last + step
     }
     return (lateness, span)
 }
@@ -105,9 +128,9 @@ private func deliver(_ url: URL, size: CGSize?, trim: Double?, to poser: LivePos
 /// app reads them from a clip (a golden poses JSON), counted, and counted on the live run's frames only.
 @MainActor
 func printLive(of url: URL, size: CGSize?, trim: Double?, settings: Settings, clip: URL?, speak: Bool,
-               record: URL?) async throws {
+               record: URL?, loops: Int) async throws {
     let recorder = try record.map { try LiveRecorder(url: $0) }
-    let run = try await playLive(url, size: size, trim: trim, settings: settings, recorder: recorder)
+    let run = try await playLive(url, size: size, trim: trim, settings: settings, recorder: recorder, loops: loops)
     let fps = Double(run.received - 1) / run.span
     let posedFPS = Double(run.frames.count - 1) / run.span
     func ms(_ values: [Double]) -> String {
@@ -239,4 +262,23 @@ func printRoundTrip(_ recorder: LiveRecorder, run: LiveRun, counter live: RepCou
     let seconds = (ContinuousClock.now - start) / .seconds(1)
     let afresh = RepCounter(poses: fresh, settings: live.settings)
     print("  Vision afresh on the recording, every frame (\(fresh.frames.count), \(fixed(seconds, 1)) s): \(summary(afresh)); \(compare(afresh.reps, live.reps)) against live")
+}
+
+/// The middle value of `values`, or 0 for none.
+func median(_ values: [Double]) -> Double {
+    let sorted = values.sorted()
+    return sorted.isEmpty ? 0 : sorted[sorted.count / 2]
+}
+
+/// The process's physical memory footprint, MB, as Activity Monitor's Memory column shows it. Foundation has no
+/// API for it; Mach's `task_info` does.
+func footprintMB() -> Double {
+    var info = task_vm_info_data_t()
+    var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
+    let result = withUnsafeMutablePointer(to: &info) {
+        $0.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+            task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
+        }
+    }
+    return result == KERN_SUCCESS ? Double(info.phys_footprint) / 1_048_576 : .nan
 }
