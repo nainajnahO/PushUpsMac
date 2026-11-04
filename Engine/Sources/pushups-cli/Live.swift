@@ -37,12 +37,15 @@ struct LiveRun {
 /// delivers, at `size` if given. Each posed frame is counted and its overlay built on the main actor, as the
 /// app does, and the set finished after the last.
 @MainActor
-func playLive(_ url: URL, size: CGSize?, trim: Double?, settings: Settings) async throws -> LiveRun {
+func playLive(_ url: URL, size: CGSize?, trim: Double?, settings: Settings, recorder: LiveRecorder? = nil) async throws -> LiveRun {
     let poser = LivePoser()
-    let camera = Task.detached(priority: .userInitiated) { try await deliver(url, size: size, trim: trim, to: poser) }
+    let camera = Task.detached(priority: .userInitiated) {
+        try await deliver(url, size: size, trim: trim, to: poser, recording: recorder)
+    }
 
     var run = LiveRun(set: LiveSet(settings: settings))
     for await frame in poser.frames {
+        recorder?.append(frame.pose, at: frame.presentationTime)
         let counted = run.set.add(frame)
         _ = run.set.overlay
         // The overlay is ready, and any rep counted: what the app's views draw next.
@@ -63,8 +66,8 @@ func playLive(_ url: URL, size: CGSize?, trim: Double?, settings: Settings) asyn
 
 /// The camera's side of the stand-in: decodes the next frame, waits for its time, hands it over, and
 /// ends the frames after the last. Returns how late each frame was handed over, and the frames' span.
-private func deliver(_ url: URL, size: CGSize?, trim: Double?,
-                     to poser: LivePoser) async throws -> (lateness: [Double], span: Double) {
+private func deliver(_ url: URL, size: CGSize?, trim: Double?, to poser: LivePoser,
+                     recording recorder: LiveRecorder?) async throws -> (lateness: [Double], span: Double) {
     defer { poser.finish() }
     let asset = AVURLAsset(url: url)
     guard let track = try await asset.loadTracks(withMediaType: .video).first else { throw PosesError.noVideo(url) }
@@ -90,6 +93,8 @@ private func deliver(_ url: URL, size: CGSize?, trim: Double?,
         let due = origin.clock + .seconds(pts - origin.pts)
         try await clock.sleep(until: due, tolerance: .zero)
         lateness.append((clock.now - due) / .seconds(1))
+        // As the app's camera does: every frame into the recording, then Vision's turn.
+        recorder?.append(frame)
         poser.receive(frame)
         span = pts - origin.pts
     }
@@ -99,8 +104,10 @@ private func deliver(_ url: URL, size: CGSize?, trim: Double?,
 /// The live run's numbers, one block, then the reps counted live; with `clip`, the same set's poses as the
 /// app reads them from a clip (a golden poses JSON), counted, and counted on the live run's frames only.
 @MainActor
-func printLive(of url: URL, size: CGSize?, trim: Double?, settings: Settings, clip: URL?, speak: Bool) async throws {
-    let run = try await playLive(url, size: size, trim: trim, settings: settings)
+func printLive(of url: URL, size: CGSize?, trim: Double?, settings: Settings, clip: URL?, speak: Bool,
+               record: URL?) async throws {
+    let recorder = try record.map { try LiveRecorder(url: $0) }
+    let run = try await playLive(url, size: size, trim: trim, settings: settings, recorder: recorder)
     let fps = Double(run.received - 1) / run.span
     let posedFPS = Double(run.frames.count - 1) / run.span
     func ms(_ values: [Double]) -> String {
@@ -126,6 +133,7 @@ func printLive(of url: URL, size: CGSize?, trim: Double?, settings: Settings, cl
         print("  rep \(rep.number) counted \(fixed(delay * 1000, 0)) ms after its lockout\(atEnd ? " (at the end of the set)" : ""): \(describe(rep))")
     }
     if speak { await printSpoken(run.counted) }
+    if let recorder { try await printRoundTrip(recorder, run: run, counter: counter) }
     guard let clip else { return }
     let poses = try Poses(contentsOf: clip)
     let whole = RepCounter(poses: poses, settings: settings)
@@ -202,4 +210,33 @@ func spokenSeconds(_ utterance: AVSpeechUtterance, by synthesizer: AVSpeechSynth
             if let finished { continuation.resume(returning: finished) }
         }
     }
+}
+
+
+/// The recording's round trip: written as the app writes it, then reopened as the app opens a clip, with its
+/// recorded poses, and counted again; and, apart, Vision run afresh on the recorded video.
+@MainActor
+func printRoundTrip(_ recorder: LiveRecorder, run: LiveRun, counter live: RepCounter) async throws {
+    let written = try await recorder.finish()
+    let asset = AVURLAsset(url: recorder.url)
+    let video = try await asset.loadTracks(withMediaType: .video).first
+    let duration = try await video?.load(.timeRange).duration.seconds ?? 0
+    let bytes = try recorder.url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+    print("  recorded \(recorder.url.lastPathComponent): \(written.frames) of \(run.received) frames (\(written.skipped) skipped by the encoder), "
+          + "\(written.poses) of \(run.frames.count) poses, \(fixed(duration, 2)) s, \(fixed(Double(bytes) / 1_000_000, 1)) MB")
+    guard let poses = try await Poses.recorded(in: recorder.url) else {
+        print("  reopened: no recorded poses")
+        return
+    }
+    let offsets = zip(poses.frames, run.frames).map { abs($0.time - $1.pose.time) }
+    let jointsAlike = zip(poses.frames, run.frames).allSatisfy { $0.joints == $1.pose.joints }
+    let reopened = RepCounter(poses: poses, settings: live.settings)
+    print("  reopened: \(poses.frames.count) poses at \(poses.width) × \(poses.height), times within "
+          + "\(fixed((offsets.max() ?? 0) * 1000, 3)) ms of live, joints \(jointsAlike ? "the same" : "different"); "
+          + "\(summary(reopened)); \(reopened.reps == live.reps ? "every rep the same as live, to the frame" : compare(reopened.reps, live.reps))")
+    let start = ContinuousClock.now
+    let fresh = try await Poses.detect(in: recorder.url)
+    let seconds = (ContinuousClock.now - start) / .seconds(1)
+    let afresh = RepCounter(poses: fresh, settings: live.settings)
+    print("  Vision afresh on the recording, every frame (\(fresh.frames.count), \(fixed(seconds, 1)) s): \(summary(afresh)); \(compare(afresh.reps, live.reps)) against live")
 }

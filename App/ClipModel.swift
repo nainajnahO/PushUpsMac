@@ -125,13 +125,18 @@ final class ClipModel {
 }
 
 /// Runs Vision off the main actor, and keeps each clip's poses, so reopening a clip or changing a
-/// setting never runs Vision again.
+/// setting never runs Vision again. A recorded live set brings its own poses, the ones it was counted
+/// with live, so it reopens with the count and grades it had.
 actor PoseEngine {
     private var cache: [URL: Poses] = [:]
 
     func poses(of url: URL, progress: @escaping @Sendable (Double) -> Void) async throws -> Poses {
         if let poses = cache[url] { return poses }
-        let poses = try await Poses.detect(in: url, progress: progress)
+        let poses = if let recorded = try await Poses.recorded(in: url) {
+            recorded
+        } else {
+            try await Poses.detect(in: url, progress: progress)
+        }
         cache[url] = poses
         return poses
     }

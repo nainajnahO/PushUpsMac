@@ -61,8 +61,8 @@ final class Camera {
     }
 
     /// Asks for camera access the first time, then shows the camera the Mac prefers, its frames going to
-    /// `poser`.
-    func turnOn(feeding poser: LivePoser) async {
+    /// `poser`, and every one of them to `recorder`.
+    func turnOn(feeding poser: LivePoser, recording recorder: LiveRecorder?) async {
         guard status == .off else { return }
         status = .starting
         switch AVCaptureDevice.authorizationStatus(for: .video) {
@@ -82,7 +82,7 @@ final class Camera {
 
         let capture = CaptureSession()
         self.capture = capture
-        await capture.attach(poser)
+        await capture.attach(poser, recorder: recorder)
         let discovery = AVCaptureDevice.DiscoverySession(deviceTypes: [.continuityCamera, .builtInWideAngleCamera, .external],
                                                          mediaType: .video, position: .unspecified)
         self.discovery = discovery
@@ -186,10 +186,11 @@ actor CaptureSession {
         }
     }
 
-    /// Sends every frame to `poser`, as 8-bit 4:2:0, the cameras' own format and Vision's. AVFoundation's
-    /// late-frame dropping stays on, but the sink returns at once, so the dropping that counts is the poser's.
-    func attach(_ poser: LivePoser) {
-        let sink = FrameSink(poser: poser)
+    /// Sends every frame to `recorder` and `poser`, as 8-bit 4:2:0, the cameras' own format and Vision's.
+    /// AVFoundation's late-frame dropping stays on, but the sink returns at once, so the dropping that counts
+    /// is the poser's.
+    func attach(_ poser: LivePoser, recorder: LiveRecorder?) {
+        let sink = FrameSink(poser: poser, recorder: recorder)
         self.sink = sink
         let format = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
         if output.availableVideoPixelFormatTypes.contains(format) {
@@ -255,19 +256,23 @@ actor CaptureSession {
     }
 }
 
-/// AVFoundation's delegate for the camera's frames: hands each one to Vision, on the frames' queue, and
-/// returns at once.
+/// AVFoundation's delegate for the camera's frames: hands each one to the recording and to Vision, on the
+/// frames' queue, and returns at once.
 private nonisolated final class FrameSink: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
     let poser: LivePoser
+    let recorder: LiveRecorder?
 
-    init(poser: LivePoser) {
-        self.poser = poser
+    init(poser: LivePoser, recorder: LiveRecorder?) {
+        (self.poser, self.recorder) = (poser, recorder)
     }
 
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
         // Handed on whole: nothing here touches the buffer after this.
-        nonisolated(unsafe) let frame = sampleBuffer
-        poser.receive(CMReadySampleBuffer(unsafeWithPixelBuffer: frame))
+        nonisolated(unsafe) let buffer = sampleBuffer
+        let frame = CMReadySampleBuffer(unsafeWithPixelBuffer: buffer)
+        // Every frame into the recording, before Vision takes it or drops it.
+        recorder?.append(frame)
+        poser.receive(frame)
     }
 }
 

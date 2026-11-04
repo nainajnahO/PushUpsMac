@@ -28,9 +28,11 @@ case "live":
     let trim = option("--trim").map { number($0) as Double }
     let clip = option("--compare").map { URL(filePath: $0) }
     let speak = flag("--speak")
+    let record = option("--record").map { URL(filePath: $0) }
     let settings = settingOptions()
     guard let path = arguments.first, arguments.count == 1 else { usage() }
-    try await printLive(of: URL(filePath: path), size: size, trim: trim, settings: settings, clip: clip, speak: speak)
+    try await printLive(of: URL(filePath: path), size: size, trim: trim, settings: settings, clip: clip, speak: speak,
+                        record: record)
 default:
     usage()
 }
@@ -41,6 +43,7 @@ func usage() -> Never {
                pushups-cli analyze <clip | poses.json> [--trim SECONDS] [--down ARMS] [--up FRACTION]
                                    [--back-tolerance DEG] [--metric moving|ascent] [--side auto|left|right]
                pushups-cli live <clip> [--size WIDTHxHEIGHT] [--trim SECONDS] [--compare <poses.json>] [--speak]
+                                [--record <movie.mov>]
                                 [--down ARMS] [--up FRACTION] [--back-tolerance DEG] [--side auto|left|right]
         """)
     exit(1)

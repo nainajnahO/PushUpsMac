@@ -22,19 +22,27 @@ final class LiveModel {
     /// Say each rep's number as it's counted, and with `speaksCues`, what fell short.
     var speaksCount = true
     var speaksCues = true
+    /// Record each set: the camera's video and its poses, saved to Movies › PushUpsMac, to open as a clip
+    /// once the camera is off.
+    var records = true
+    /// Ending the set: the last posed frames going in and the recording being written.
+    private(set) var isStopping = false
+    /// Why the last set wasn't recorded, if it wasn't.
+    private(set) var recordingFailure: String?
 
     @ObservationIgnored private var set = LiveSet(settings: PushUpsEngine.Settings())
     @ObservationIgnored private var lastShown = ContinuousClock.now
     @ObservationIgnored private var poser: LivePoser?
+    @ObservationIgnored private var recorder: LiveRecorder?
     @ObservationIgnored private var reading: Task<Void, Never>?
     @ObservationIgnored private var timings = Timings()
     @ObservationIgnored private let speaker = Speaker()
 
-    /// A new set, counted with `settings`: the sink the camera's frames go to.
-    func start(settings: PushUpsEngine.Settings) -> LivePoser {
-        stop()
+    /// A new set, counted with `settings` and, with `records`, recorded: where the camera's frames go.
+    func start(settings: PushUpsEngine.Settings) -> (poser: LivePoser, recorder: LiveRecorder?) {
         let poser = LivePoser()
         self.poser = poser
+        recorder = records ? makeRecorder() : nil
         set = LiveSet(settings: settings)
         timings = Timings()
         if speaksCount { speaker.warmUp() }
@@ -42,8 +50,31 @@ final class LiveModel {
             for await frame in poser.frames { self?.take(frame) }
         }
         log.notice("live set started")
-        return poser
+        return (poser, recorder)
     }
+
+    /// A recorder for the set, into Movies › PushUpsMac, named for when it starts, as QuickTime names its
+    /// recordings.
+    private func makeRecorder() -> LiveRecorder? {
+        let folder = URL.moviesDirectory.appending(component: "PushUpsMac", directoryHint: .isDirectory)
+        let name = "Push-ups \(Date.now.formatted(Self.fileDate)).mov"
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let recorder = try LiveRecorder(url: folder.appending(component: name))
+            recordingFailure = nil
+            log.notice("recording to \(recorder.url.path(percentEncoded: false), privacy: .public)")
+            return recorder
+        } catch {
+            recordingFailure = "Couldn't record the set: \(error.localizedDescription)"
+            log.error("couldn't record: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+    }
+
+    /// "2026-11-04 at 22.31.05", in the Mac's time zone.
+    private static let fileDate = Date.VerbatimFormatStyle(
+        format: "\(year: .defaultDigits)-\(month: .twoDigits)-\(day: .twoDigits) at \(hour: .twoDigits(clock: .twentyFourHour, hourCycle: .zeroBased)).\(minute: .twoDigits).\(second: .twoDigits)",
+        timeZone: .current, calendar: Calendar(identifier: .gregorian))
 
     /// A setting changed mid-set: the frames so far counted again with it, as on a clip.
     func recount(with settings: PushUpsEngine.Settings) {
@@ -53,11 +84,16 @@ final class LiveModel {
         log.notice("counted again with the new settings: \(self.set.counter?.count ?? 0) reps")
     }
 
-    /// The camera is off: that's the end of the set.
-    func stop() {
-        guard let poser else { return }
+    /// The camera is off: that's the end of the set, once Vision is done with the frame it's on. Returns the
+    /// recording, written, if there is one.
+    func stop() async -> URL? {
+        guard let poser, !isStopping else { return nil }
+        isStopping = true
+        defer { isStopping = false }
         poser.finish()
-        self.poser = nil
+        // The last posed frames, counted and recorded.
+        await reading?.value
+        (self.poser, reading) = (nil, nil)
         for rep in set.finish() {
             log.notice("rep \(rep.number) counted as the set ended: \(rep.grade.reason, privacy: .public), \(rep.grade.backLabel, privacy: .public)")
             say(rep)
@@ -69,10 +105,25 @@ final class LiveModel {
         (overlay, posedPerSecond, shown) = (nil, nil, nil)
         let (received, dropped, failed, lastError) = poser.counts
         log.notice("live set stopped: \(received) frames received, \(dropped) dropped while Vision was busy, \(failed) failed\(lastError.map { " (\($0))" } ?? "", privacy: .public)")
+        guard let recorder else { return nil }
+        self.recorder = nil
+        do {
+            let (frames, poses, skipped) = try await recorder.finish()
+            log.notice("recorded \(frames) frames (\(skipped) skipped by the encoder) and \(poses) poses to \(recorder.url.lastPathComponent, privacy: .public)")
+            return recorder.url
+        } catch LiveRecorder.Failure.noFrames {
+            // The camera never delivered a frame (no access, or no camera): nothing to record, and no file.
+            return nil
+        } catch {
+            recordingFailure = "Couldn't record the set: \(error.localizedDescription)"
+            log.error("recording failed: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
     }
 
     private func take(_ frame: LiveFrame) {
         guard let poser else { return }
+        recorder?.append(frame.pose, at: frame.presentationTime)
         let counted = set.add(frame)
         overlay = set.overlay
         frameSize = CGSize(width: frame.width, height: frame.height)

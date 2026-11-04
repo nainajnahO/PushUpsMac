@@ -54,13 +54,16 @@ struct ContentView: View {
                 Toggle(isOn: Binding { camera.isOn } set: { on in
                     if on {
                         model.player?.pause()
-                        Task { await camera.turnOn(feeding: live.start(settings: model.settings)) }
+                        let (poser, recorder) = live.start(settings: model.settings)
+                        Task { await camera.turnOn(feeding: poser, recording: recorder) }
                     } else {
-                        turnCameraOff()
+                        turnCameraOff(openingTheSet: true)
                     }
                 }) {
                     Label("Camera", systemImage: "camera")
                 }
+                // Not while the last set is being written.
+                .disabled(live.isStopping)
                 .help("Count live from a camera: your iPhone, through Continuity Camera, or another camera")
                 if !camera.isOn, model.isPosing {
                     ProgressView(value: model.progress)
@@ -89,15 +92,19 @@ struct ContentView: View {
         }
     }
 
-    /// A clip opened while the camera is on takes its place.
+    /// A clip opened while the camera is on takes its place; the set is still recorded, but not opened.
     private func open(_ url: URL, securityScoped: Bool = false) {
-        turnCameraOff()
+        turnCameraOff(openingTheSet: false)
         model.open(url, securityScoped: securityScoped)
     }
 
-    private func turnCameraOff() {
+    /// Ends the live set, and opens its recording as a clip once it's written.
+    private func turnCameraOff(openingTheSet: Bool) {
+        guard camera.isOn else { return }
         camera.turnOff()
-        live.stop()
+        Task {
+            if let url = await live.stop(), openingTheSet { model.open(url) }
+        }
     }
 }
 
@@ -158,12 +165,18 @@ struct Sidebar: View {
             } else if let analysis = model.analysis {
                 ResultSections(analysis: analysis, metric: model.settings.metric, jump: model.jump(to:))
             }
-            Section("Spoken count") {
+            Section("Live") {
                 Toggle("Say each rep's number", isOn: $live.speaksCount)
                     .help("Counting live, the Mac says each rep's number as it's counted.")
                 Toggle("Add a cue for a short rep or a bent back", isOn: $live.speaksCues)
                     .disabled(!live.speaksCount)
                     .help("After the number, what fell short, as the rep list says it: \"not to the floor\", \"not back up\", \"hips low\", \"hips high\".")
+                Toggle("Record each set", isOn: $live.records)
+                    .disabled(camera.isOn)
+                    .help("Saves the camera's video, without sound, and its poses to Movies › PushUpsMac, and opens the set as a clip once the camera is off.")
+                if let failure = live.recordingFailure {
+                    Text(failure).font(.caption).foregroundStyle(.red)
+                }
             }
             Section {
                 SettingSlider(title: "Down height", value: $model.settings.romDownHeight, range: 0.3...0.9, step: 0.05,

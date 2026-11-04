@@ -17,6 +17,8 @@ import Vision
 public struct LiveFrame: Sendable {
     /// The athlete, timed in seconds from the first frame received.
     public var pose: Pose
+    /// The frame's own presentation time, on the camera's clock: where a recording puts the pose.
+    public var presentationTime: CMTime
     /// The frame as shown, in pixels: what the joints are normalized to.
     public var width: Int
     public var height: Int
@@ -74,7 +76,7 @@ public final class LivePoser: Sendable {
         }
         guard let start else { return }
         Task {
-            await pose(frame, time: (time - start).seconds, arrived: arrived)
+            await pose(frame, time: time, start: start, arrived: arrived)
         }
     }
 
@@ -87,7 +89,8 @@ public final class LivePoser: Sendable {
         if idle { continuation.finish() }
     }
 
-    private func pose(_ frame: CMReadySampleBuffer<CVReadOnlyPixelBuffer>, time: Double, arrived: ContinuousClock.Instant) async {
+    private func pose(_ frame: CMReadySampleBuffer<CVReadOnlyPixelBuffer>, time: CMTime, start: CMTime,
+                      arrived: ContinuousClock.Instant) async {
         let started = ContinuousClock.now
         // Vision takes a `CVPixelBuffer`, not the read-only one, and only reads it. The closure runs at once.
         nonisolated(unsafe) var pixels: CVPixelBuffer!
@@ -108,8 +111,8 @@ public final class LivePoser: Sendable {
             }
         }
         let vision = (ContinuousClock.now - started) / .seconds(1)
-        continuation.yield(LiveFrame(pose: Pose(time: time, joints: joints), width: width, height: height,
-                                     arrived: arrived, visionSeconds: vision))
+        continuation.yield(LiveFrame(pose: Pose(time: (time - start).seconds, joints: joints), presentationTime: time,
+                                     width: width, height: height, arrived: arrived, visionSeconds: vision))
         let finished = state.withLock { state in
             state.busy = false
             return state.finished

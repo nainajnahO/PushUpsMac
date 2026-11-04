@@ -124,7 +124,8 @@ func liveSetCountsAsTheClip(name: String) throws {
     var changed = Settings()
     changed.romDownHeight = 0.70
     for (i, pose) in poses.frames.enumerated() {
-        let frame = LiveFrame(pose: pose, width: poses.width, height: poses.height, arrived: .now, visionSeconds: 0)
+        let frame = LiveFrame(pose: pose, presentationTime: CMTime(seconds: pose.time, preferredTimescale: 600),
+                              width: poses.width, height: poses.height, arrived: .now, visionSeconds: 0)
         counted += set.add(frame)
         if i == poses.frames.count / 2 {
             var fresh = RepCounter(settings: changed, aspect: poses.aspect)
@@ -136,4 +137,43 @@ func liveSetCountsAsTheClip(name: String) throws {
     #expect(counted == clip.reps)
     #expect(set.counter?.reps == clip.reps && set.arrivals.count == poses.frames.count)
     #expect(set.finish().isEmpty)
+}
+
+/// A live set recorded and read back: every frame in the movie, and every pose at its frame's time, with
+/// its joints as they were. Thirty blank frames at a camera's pace, 30 fps, a pose on every other one.
+@Test func recordedPosesComeBack() async throws {
+    let url = FileManager.default.temporaryDirectory.appending(component: "recorded-\(UUID().uuidString).mov")
+    defer { try? FileManager.default.removeItem(at: url) }
+    let recorder = try LiveRecorder(url: url)
+    let start = 1000.0   // a camera's times are the host clock's
+    var written: [Pose] = []
+    for i in 0..<30 {
+        let time = CMTime(value: CMTimeValue(30_000 + 1000 * i), timescale: 30_000)   // 1/30 s apart, exactly
+        try await Task.sleep(for: .seconds(1.0 / 30))
+        recorder.append(try blankFrame(at: start + time.seconds - 1))
+        if i.isMultiple(of: 2) {
+            let pose = Pose(time: Double(i) / 30, joints: [
+                .rightShoulder: Joint(location: CGPoint(x: 0.3 + 0.001 * Double(i), y: 0.4), confidence: 0.9),
+                .rightWrist: Joint(location: CGPoint(x: 0.31, y: 0.7), confidence: 0.5),
+            ])
+            recorder.append(pose, at: CMTime(seconds: start + time.seconds - 1, preferredTimescale: 600_000))
+            written.append(pose)
+        }
+    }
+    let counts = try await recorder.finish()
+    #expect((counts.frames, counts.poses, counts.skipped) == (30, 15, 0))
+    let read = try #require(try await Poses.recorded(in: url))
+    #expect((read.width, read.height) == (640, 360))
+    #expect(read.frames.count == written.count)
+    for (back, pose) in zip(read.frames, written) {
+        #expect(abs(back.time - pose.time) < 0.0001)
+        #expect(back.joints == pose.joints)
+    }
+    let video = try #require(try await AVURLAsset(url: url).loadTracks(withMediaType: .video).first)
+    #expect(try await video.load(.timeRange).duration.seconds > 0.9)
+}
+
+/// A clip filmed on the phone has no recorded poses: it's posed by Vision, as before.
+@Test func aClipHasNoRecordedPoses() async throws {
+    #expect(try await Poses.recorded(in: testClip("clean-right")) == nil)
 }
