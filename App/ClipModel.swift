@@ -17,10 +17,10 @@ final class ClipModel {
     var settings = Settings() {
         didSet { reanalyze() }
     }
-    /// The frame on screen, for the overlay and the panel: AVFoundation calls back with the
-    /// player's time once a frame while it plays, and on every seek or scrub, and not at all while
+    /// The frame on screen, for the overlay and the panel's playhead lines: AVFoundation calls back with
+    /// the player's time once a frame while it plays, and on every seek or scrub, and not at all while
     /// it's paused, so nothing redraws a still frame (a `TimelineView` redrew both 60 times a second).
-    private(set) var playhead = 0
+    let playhead = Playhead()
     /// The measured near side, or the whole skeleton.
     var overlayStyle = OverlayStyle.near
     /// Of the poses, 0 to 1, while Vision runs.
@@ -60,10 +60,11 @@ final class ClipModel {
             let status = player.timeControlStatus
             let time = player.currentTime().seconds
             Task { @MainActor in
-                log.notice("player \(status == .playing ? "playing" : "paused", privacy: .public) at \(time, format: .fixed(precision: 2)) s, playhead on frame \(self.playhead)")
+                log.notice("player \(status == .playing ? "playing" : "paused", privacy: .public) at \(time, format: .fixed(precision: 2)) s, playhead on frame \(self.playhead.frame)")
             }
         }
-        (poses, analysis, failure, progress, isPosing, playhead) = (nil, nil, nil, 0, true, 0)
+        (poses, analysis, failure, progress, isPosing) = (nil, nil, nil, 0, true)
+        playhead.frame = 0
         log.notice("opened \(url.lastPathComponent, privacy: .public)")
         posing = Task {
             let start = ContinuousClock.now
@@ -115,7 +116,7 @@ final class ClipModel {
     private func follow(_ time: CMTime) {
         guard let analysis else { return }
         let frame = analysis.frame(at: time.seconds)
-        if frame != playhead { playhead = frame }
+        if frame != playhead.frame { playhead.frame = frame }
     }
 
     func importFailed(_ error: any Error) {

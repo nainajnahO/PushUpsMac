@@ -26,14 +26,25 @@ extension RepCounter {
     }
 }
 
-/// The panel for the counter so far, with `settings`. `playhead` is the frame on screen while a clip plays;
+/// The frame on screen while a clip plays. An object of its own, so only the views that read its frame redraw
+/// as it steps: the overlay and the panel's playhead lines, not the charts under them. Rebuilding the charts
+/// on every frame kept the main thread busy, and the overlay skipped frames.
+@MainActor
+@Observable
+public final class Playhead {
+    public var frame = 0
+
+    public init() {}
+}
+
+/// The panel for the counter so far, with `settings`. `playhead` follows the frame on screen while a clip plays;
 /// nil while counting live, when the newest frame is now.
 public struct PanelView: View {
     let counter: RepCounter
     let settings: Settings
-    let playhead: Int?
+    let playhead: Playhead?
 
-    public init(counter: RepCounter, settings: Settings, playhead: Int?) {
+    public init(counter: RepCounter, settings: Settings, playhead: Playhead?) {
         (self.counter, self.settings, self.playhead) = (counter, settings, playhead)
     }
 
@@ -116,12 +127,12 @@ public struct PanelView: View {
     /// When frame `frame` is shown, seconds.
     private func time(_ frame: Int) -> Double { counter.times[min(frame, counter.times.count - 1)] }
 
-    @ChartContentBuilder
-    private var playheadMark: some ChartContent {
+    /// The playhead's line over a chart, drawn over it rather than in it, so the chart's marks stay as they
+    /// are while it moves.
+    @ViewBuilder
+    private func playheadLine(_ proxy: ChartProxy) -> some View {
         if let playhead {
-            RuleMark(x: .value("Now", time(playhead)))
-                .foregroundStyle(Color.secondary)
-                .lineStyle(StrokeStyle(lineWidth: 1))
+            PlayheadLine(playhead: playhead, times: counter.times, proxy: proxy)
         }
     }
 
@@ -159,8 +170,8 @@ public struct PanelView: View {
                     .foregroundStyle(by: .value("Grade", mark.label))
                     .symbol(by: .value("Grade", mark.label))
             }
-            playheadMark
         }
+        .chartOverlay { playheadLine($0) }
         .chartForegroundStyleScale(["Reached": Color.green, "Short": Color.red])
         .chartSymbolScale(["Reached": .circle, "Short": .cross])
         .chartLegend(position: .top, alignment: .trailing)
@@ -204,8 +215,8 @@ public struct PanelView: View {
                     .foregroundStyle(Color.red)
                     .lineStyle(StrokeStyle(lineWidth: 4, lineCap: .round))
             }
-            playheadMark
         }
+        .chartOverlay { playheadLine($0) }
         .chartXScale(domain: 0...duration)
         .chartYScale(domain: low...high)
         .chartXAxis {
@@ -255,6 +266,28 @@ public struct PanelView: View {
         case (false, true): "Short"
         case (true, false): "Bent"
         case (false, false): "Short and bent"
+        }
+    }
+}
+
+/// The playhead's line across a chart's plot, at the time of its frame: the only part of the panel that reads the
+/// playhead, so the only part that redraws as a clip plays.
+private struct PlayheadLine: View {
+    let playhead: Playhead
+    /// When each frame is shown, seconds.
+    let times: [Double]
+    let proxy: ChartProxy
+
+    var body: some View {
+        let time = times[min(playhead.frame, times.count - 1)]
+        GeometryReader { geometry in
+            if let plot = proxy.plotFrame, let x = proxy.position(forX: time) {
+                let frame = geometry[plot]
+                Rectangle()
+                    .fill(Color.secondary)
+                    .frame(width: 1, height: frame.height)
+                    .position(x: frame.minX + x, y: frame.midY)
+            }
         }
     }
 }

@@ -200,8 +200,8 @@ private func seconds(_ value: Double) -> String {
 
 /// The overlay on the playing clip, on the model's playhead, so it follows playback and scrubbing
 /// alike. Drawn in the rectangle the video fills (aspect fit, as the player shows it), and clicks go
-/// through to the player's controls. Only this view and the panel read the playhead, so only they
-/// redraw as it moves.
+/// through to the player's controls. Only this view and the panel's playhead lines read the playhead, so
+/// only they redraw as it moves.
 struct PlayerOverlay: View {
     @Environment(ClipModel.self) private var model
     let analysis: RepCounter
@@ -211,7 +211,7 @@ struct PlayerOverlay: View {
     var body: some View {
         GeometryReader { geometry in
             let rect = AVMakeRect(aspectRatio: size, insideRect: CGRect(origin: .zero, size: geometry.size))
-            if let overlay = analysis.overlay(atFrame: model.playhead, tolerance: model.settings.backToleranceDegrees) {
+            if let overlay = analysis.overlay(atFrame: model.playhead.frame, tolerance: model.settings.backToleranceDegrees) {
                 OverlayView(frame: overlay, style: model.overlayStyle)
                     .frame(width: rect.width, height: rect.height)
                     .position(x: rect.midX, y: rect.midY)
