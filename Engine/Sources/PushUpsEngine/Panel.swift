@@ -349,13 +349,3 @@ public struct PanelView: View {
 private func seconds(_ value: Double, _ digits: Int) -> String {
     value.formatted(.number.precision(.fractionLength(digits))) + "s"
 }
-
-extension PanelView {
-    /// The panel at `width` × `height`, through SwiftUI's `ImageRenderer`.
-    @MainActor
-    public func rendered(width: Int, height: Int) -> CGImage? {
-        let renderer = ImageRenderer(content: frame(width: CGFloat(width), height: CGFloat(height)))
-        renderer.scale = 1
-        return renderer.cgImage
-    }
-}

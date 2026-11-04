@@ -123,20 +123,3 @@ public struct OverlayView: View {
         }
     }
 }
-
-extension Frame {
-    /// The frame with `overlay` drawn on it, through SwiftUI's `ImageRenderer`, at the frame's size.
-    @MainActor
-    public func rendered(with overlay: OverlayFrame?, style: OverlayStyle, context: CIContext) -> CGImage? {
-        guard let image = context.createCGImage(self.image, from: self.image.extent) else { return nil }
-        let size = self.image.extent.size
-        let view = ZStack {
-            Image(decorative: image, scale: 1)
-            if let overlay { OverlayView(frame: overlay, style: style) }
-        }
-        .frame(width: size.width, height: size.height)
-        let renderer = ImageRenderer(content: view)
-        renderer.scale = 1
-        return renderer.cgImage
-    }
-}

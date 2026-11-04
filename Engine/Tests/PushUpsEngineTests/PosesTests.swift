@@ -8,21 +8,13 @@ func golden(_ components: String...) -> URL {
     components.reduce(repository.appending(component: "golden")) { $0.appending(component: $1) }
 }
 
-/// A golden dump from `tools/golden.py`, as JSON.
-func pythonDump(_ name: String, model: String) throws -> [String: Any] {
-    try JSONSerialization.jsonObject(with: Data(contentsOf: golden(name, "python-\(model).json"))) as! [String: Any]
-}
-
 /// The clips with Vision poses in golden/.
 let clipNames = ["clean-left", "clean-right", "fast-reps", "half-reps", "hips-high", "hips-low"]
 
-/// The demo's `dedupe` drops the hand-made figure's second, smaller person on frames 60 and 61, as
-/// Python's did.
-@Test func dedupeMatchesPython() throws {
+/// `dedupe` drops the hand-made figure's second, smaller person on frames 60 and 61.
+@Test func dedupeKeepsOneAthlete() throws {
     let frames = try Poses(contentsOf: golden("synthetic", "poses-handmade.json")).byFrame
     let kept = dedupe(frames)
-    let dropped = frames.joined().count - kept.joined().count
-    #expect(dropped == (try pythonDump("synthetic", model: "handmade")["dropped"] as! Int))
     #expect(kept[60] == [frames[60][0]] && kept[61] == [frames[61][0]])
     #expect(kept[90].isEmpty)
 }
@@ -33,7 +25,7 @@ let clipNames = ["clean-left", "clean-right", "fast-reps", "half-reps", "hips-hi
     #expect(iou([0, 0, 1, 1], [2, 2, 1, 1]) == 0)
 }
 
-/// Every golden poses file is the gateway's shape, one athlete per frame, and golden.py read it.
+/// Every golden poses file is the gateway's shape, one athlete per frame.
 @Test(arguments: clipNames)
 func goldenPosesAreGatewayShaped(name: String) throws {
     let poses = try Poses(contentsOf: golden(name, "poses-vision.json"))
@@ -44,8 +36,6 @@ func goldenPosesAreGatewayShaped(name: String) throws {
         #expect(person.keypoints.count == 17 && person.scores.count == 17)
         #expect(person.keypoints.joined().allSatisfy { (0...1).contains($0) })
     }
-    let input = try pythonDump(name, model: "vision")["input"] as! [String: Any]
-    #expect(input["n_frames"] as? Int == poses.video.nFrames && input["fps"] as? Double == poses.video.fps)
 }
 
 /// Vision on the first second of a clip: one person a frame, y down (the wrists, on the floor,

@@ -4,7 +4,9 @@ import Foundation
 // the top, so the signal counted on is depth: how far the shoulder has come down from the plank,
 // in arm lengths.
 
-/// The settings the analysis reads, with the demo's `config.py` values as ``demo``.
+/// The settings the analysis reads. The defaults are the demo's `config.py`, bar the down height and
+/// the back tolerance, which were set for Vision's keypoints and a phone on the floor: measured on the
+/// six test clips against your own counts (#46).
 public struct Settings: Sendable, Codable, Equatable {
     /// Which side to measure; nil picks the one that scores higher (`SIDE = "auto"`).
     public var side: Side?
@@ -22,28 +24,19 @@ public struct Settings: Sendable, Codable, Equatable {
     public var metric = Metric.moving
     /// Grade each rep's range of motion and back.
     public var gradeROM = true
-    /// Down: the shoulder at most this many arm lengths above the wrist at the deepest point.
-    public var romDownHeight = 0.40
+    /// Down: the shoulder at most this many arm lengths above the wrist at the deepest point. The
+    /// demo's 0.40 graded 1 of your 19 reps right; 0.70 grades 18.
+    public var romDownHeight = 0.70
     /// Up: the shoulder back to this share of the plank at lockout.
     public var romUpFraction = 0.90
     /// Frames in the median window around each extreme, so one bad pose can't decide a rep.
     public var romSampleFrames = 5
-    /// Straight back: every frame from descent to lockout within this many degrees of the line.
-    public var backToleranceDegrees = 15.0
+    /// Straight back: every frame from descent to lockout within this many degrees of the line. 14°
+    /// (the demo's 15°) catches hips-low's rep 3, whose sag Vision reads at −14.9°.
+    public var backToleranceDegrees = 14.0
     public var backSampleFrames = 5
 
-    /// The demo's `config.py`: what the parity tests and `pushups-cli` use.
-    public static let demo = Settings()
-
-    /// The app's defaults, for Apple Vision's keypoints and a phone on the floor: the demo's, with
-    /// the down height at 0.70 (from 0.40) and the back tolerance at 14° (from 15°). Measured on
-    /// the test clips against your own counts, and explained in docs/porting.md.
-    public static let app: Settings = {
-        var settings = Settings()
-        settings.romDownHeight = 0.70
-        settings.backToleranceDegrees = 14
-        return settings
-    }()
+    public init() {}
 }
 
 /// Which span a rep's push-up time is (the demo's `REP_METRIC`).
@@ -126,7 +119,7 @@ public struct RepAnalysis: Sendable {
 }
 
 /// The demo's `analyze`: builds the depth signal, counts reps off it and times each one's phases.
-public func analyze(_ poses: Poses, settings: Settings = .demo) -> RepAnalysis {
+public func analyze(_ poses: Poses, settings: Settings = Settings()) -> RepAnalysis {
     let (indices, frames) = poses.unwrapped()
     let times = indices.map { Double($0) / poses.video.fps }
     let side = pickSide(frames, forced: settings.side)

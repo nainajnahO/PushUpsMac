@@ -3,10 +3,9 @@ import Testing
 
 /// The panel's tallies count only the reps locked out by the playhead: none at the start, then each
 /// rep from its lockout frame, and at the end the whole clip's summary.
-@Test(arguments: goldenCases)
-func panelTalliesFollowThePlayhead(name: String, model: String) throws {
-    let (poses, _) = try loadCase(name, model)
-    let analysis = analyze(poses, settings: .app)
+@Test(arguments: clipNames)
+func panelTalliesFollowThePlayhead(name: String) throws {
+    let analysis = analyze(try Poses(contentsOf: golden(name, "poses-vision.json")))
     let start = analysis.panelState(atSourceFrame: 0, metric: .moving)
     #expect(start.done.isEmpty && start.averageSeconds == nil && start.graded == 0)
     for rep in analysis.reps {
@@ -20,7 +19,7 @@ func panelTalliesFollowThePlayhead(name: String, model: String) throws {
 }
 
 /// The panel's display smoothing keeps a level series level, bridges a gap up to 0.1 s (2 frames at
-/// 24 fps) and leaves a longer one, and the ends, unseen: the demo's `display_smooth`.
+/// 24 fps) and leaves a longer one, and the ends, unseen.
 @Test func displaySmoothingBridgesShortGapsOnly() {
     let nan = Double.nan
     let series = [nan, 2, 2, nan, nan, 2, 2, nan, nan, nan, 2, 2, nan]

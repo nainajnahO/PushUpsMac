@@ -95,8 +95,7 @@ func mean(_ values: [Double]) -> Double {
     values.reduce(0, +) / Double(values.count)
 }
 
-/// One rep as the app lists it: where it starts (a click jumps there), its times, and its grade,
-/// the values `reps.json`'s `reps_detail` holds for it.
+/// One rep as the app lists it: where it starts (a click jumps there), its times, and its grade.
 public struct RepRow: Identifiable, Sendable, Equatable {
     /// The rep's number.
     public var id: Int

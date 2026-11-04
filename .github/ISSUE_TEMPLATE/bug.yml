@@ -49,8 +49,3 @@ body:
       label: The clip
       description: What filmed it, its frame rate, and whether it's HDR; or the camera, if it was live.
       placeholder: iPhone 17 Pro, 4K at 30 fps, HDR
-  - type: textarea
-    id: python
-    attributes:
-      label: Does the Python demo count it differently?
-      description: If you ran vision-demos' push_ups on the same clip, which commit, and what it said.
