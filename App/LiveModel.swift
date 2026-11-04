@@ -19,12 +19,16 @@ final class LiveModel {
     /// The set so far, for the sidebar and the panel: refreshed as each rep is counted and twice a second,
     /// not on every frame, so the charts aren't rebuilt 30 times a second.
     private(set) var shown: RepCounter?
+    /// Say each rep's number as it's counted, and with `speaksCues`, what fell short.
+    var speaksCount = true
+    var speaksCues = true
 
     @ObservationIgnored private var set = LiveSet(settings: PushUpsEngine.Settings())
     @ObservationIgnored private var lastShown = ContinuousClock.now
     @ObservationIgnored private var poser: LivePoser?
     @ObservationIgnored private var reading: Task<Void, Never>?
     @ObservationIgnored private var timings = Timings()
+    @ObservationIgnored private let speaker = Speaker()
 
     /// A new set, counted with `settings`: the sink the camera's frames go to.
     func start(settings: PushUpsEngine.Settings) -> LivePoser {
@@ -33,6 +37,7 @@ final class LiveModel {
         self.poser = poser
         set = LiveSet(settings: settings)
         timings = Timings()
+        if speaksCount { speaker.warmUp() }
         reading = Task { [weak self] in
             for await frame in poser.frames { self?.take(frame) }
         }
@@ -53,7 +58,10 @@ final class LiveModel {
         guard let poser else { return }
         poser.finish()
         self.poser = nil
-        for rep in set.finish() { log.notice("rep \(rep.number) counted as the set ended: \(rep.grade.reason, privacy: .public), \(rep.grade.backLabel, privacy: .public)") }
+        for rep in set.finish() {
+            log.notice("rep \(rep.number) counted as the set ended: \(rep.grade.reason, privacy: .public), \(rep.grade.backLabel, privacy: .public)")
+            say(rep)
+        }
         if let counter = set.counter {
             let (full, straight, graded) = counter.tally
             log.notice("set: \(counter.count) reps, \(full)/\(graded) full range, \(straight)/\(graded) straight back")
@@ -74,6 +82,7 @@ final class LiveModel {
         for rep in counted {
             let delay = (now - set.arrivals[rep.lockoutFrame]) / .milliseconds(1)
             log.notice("rep \(rep.number) counted \(delay, format: .fixed(precision: 0)) ms after its lockout: \(rep.grade.reason, privacy: .public), \(rep.grade.backLabel, privacy: .public)")
+            say(rep)
         }
         if !counted.isEmpty || now - lastShown >= .milliseconds(500) {
             shown = set.counter
@@ -81,6 +90,34 @@ final class LiveModel {
         }
         if let rate = timings.secondElapsed() { posedPerSecond = rate }
         if let summary = timings.summaryDue() { log.notice("\(summary, privacy: .public)") }
+    }
+}
+
+/// Says the rep, if the count is spoken.
+extension LiveModel {
+    private func say(_ rep: Rep) {
+        guard speaksCount else { return }
+        let utterance = rep.utterance(cues: speaksCues)
+        speaker.say(utterance)
+        log.notice("said “\(utterance.speechString, privacy: .public)”")
+    }
+}
+
+/// The spoken count: AVFoundation's speech synthesizer. A rep counted while the last is still being said
+/// cuts it short, so the number is never late. At once, not at the next word: on macOS 27.2
+/// `stopSpeaking(at: .word)` returns true and lets the words play to their end.
+private final class Speaker {
+    private let synthesizer = AVSpeechSynthesizer()
+
+    /// Loads the voice before the first rep, silently: rendered to buffers, not played. Said cold, the first
+    /// rep's number starts about 0.9 s late; warmed up, 0.3 s.
+    func warmUp() {
+        synthesizer.write(AVSpeechUtterance(count: "1")) { @Sendable _ in }
+    }
+
+    func say(_ utterance: AVSpeechUtterance) {
+        if synthesizer.isSpeaking { synthesizer.stopSpeaking(at: .immediate) }
+        synthesizer.speak(utterance)
     }
 }
 

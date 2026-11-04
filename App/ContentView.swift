@@ -149,6 +149,7 @@ struct Sidebar: View {
 
     var body: some View {
         @Bindable var model = model
+        @Bindable var live = live
         List {
             if camera.isOn {
                 if let counter = live.shown {
@@ -156,6 +157,13 @@ struct Sidebar: View {
                 }
             } else if let analysis = model.analysis {
                 ResultSections(analysis: analysis, metric: model.settings.metric, jump: model.jump(to:))
+            }
+            Section("Spoken count") {
+                Toggle("Say each rep's number", isOn: $live.speaksCount)
+                    .help("Counting live, the Mac says each rep's number as it's counted.")
+                Toggle("Add a cue for a short rep or a bent back", isOn: $live.speaksCues)
+                    .disabled(!live.speaksCount)
+                    .help("After the number, what fell short, as the rep list says it: \"not to the floor\", \"not back up\", \"hips low\", \"hips high\".")
             }
             Section {
                 SettingSlider(title: "Down height", value: $model.settings.romDownHeight, range: 0.3...0.9, step: 0.05,

@@ -100,6 +100,17 @@ public struct RepRow: Identifiable, Sendable, Equatable {
 }
 
 extension Rep {
+    /// What's said as the rep is counted: its number, and with `cues`, what fell short, in the sidebar's words
+    /// ("3, not to the floor, hips low"). No cue where Vision didn't see the back.
+    public func spoken(cues: Bool) -> String {
+        var words = ["\(number)"]
+        if cues {
+            if !complete { words.append(grade.reason) }
+            if !straight, grade.backWorst.isFinite { words.append(grade.backLabel) }
+        }
+        return words.joined(separator: ", ")
+    }
+
     public func row(metric: Metric) -> RepRow {
         RepRow(id: number, startSeconds: descentTime, downSeconds: eccentricSeconds, pauseSeconds: pauseSeconds,
                pushUpSeconds: seconds(metric), range: grade.reason, back: grade.backLabel,

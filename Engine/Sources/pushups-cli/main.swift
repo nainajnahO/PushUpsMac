@@ -27,9 +27,10 @@ case "live":
     let size = option("--size").map(frameSize)
     let trim = option("--trim").map { number($0) as Double }
     let clip = option("--compare").map { URL(filePath: $0) }
+    let speak = flag("--speak")
     let settings = settingOptions()
     guard let path = arguments.first, arguments.count == 1 else { usage() }
-    try await printLive(of: URL(filePath: path), size: size, trim: trim, settings: settings, clip: clip)
+    try await printLive(of: URL(filePath: path), size: size, trim: trim, settings: settings, clip: clip, speak: speak)
 default:
     usage()
 }
@@ -39,7 +40,7 @@ func usage() -> Never {
         Usage: pushups-cli poses <clip> -o <poses.json> [--trim SECONDS]
                pushups-cli analyze <clip | poses.json> [--trim SECONDS] [--down ARMS] [--up FRACTION]
                                    [--back-tolerance DEG] [--metric moving|ascent] [--side auto|left|right]
-               pushups-cli live <clip> [--size WIDTHxHEIGHT] [--trim SECONDS] [--compare <poses.json>]
+               pushups-cli live <clip> [--size WIDTHxHEIGHT] [--trim SECONDS] [--compare <poses.json>] [--speak]
                                 [--down ARMS] [--up FRACTION] [--back-tolerance DEG] [--side auto|left|right]
         """)
     exit(1)
@@ -55,6 +56,13 @@ func usage() -> Never {
 
 @MainActor func option(_ name: String) -> String? {
     option(name, count: 1)?.first
+}
+
+/// Whether `name` is among `arguments`, taking it out.
+@MainActor func flag(_ name: String) -> Bool {
+    guard let i = arguments.firstIndex(of: name) else { return false }
+    arguments.remove(at: i)
+    return true
 }
 
 /// `value` with `digits` decimals, in any locale.
