@@ -5,6 +5,7 @@ import SwiftUI
 struct ContentView: View {
     @Environment(ClipModel.self) private var model
     @Environment(Camera.self) private var camera
+    @Environment(LiveModel.self) private var live
 
     var body: some View {
         @Bindable var model = model
@@ -13,7 +14,7 @@ struct ContentView: View {
                 .navigationSplitViewColumnWidth(min: 250, ideal: 290)
         } detail: {
             if camera.isOn {
-                CameraView(camera: camera)
+                CameraView(camera: camera, live: live, style: model.overlayStyle)
             } else if let player = model.player {
                 // The panel under the clip, the two sharing the window's height. A stack, not a
                 // `VSplitView`: on macOS 27.2 the split view reports its current size as its minimum,
@@ -39,7 +40,7 @@ struct ContentView: View {
             }
         }
         .navigationTitle(camera.isOn ? camera.currentName ?? "Camera" : model.url?.lastPathComponent ?? "PushUpsMac")
-        .navigationSubtitle(camera.isOn ? camera.subtitle : model.status)
+        .navigationSubtitle(camera.isOn ? camera.subtitle(posedPerSecond: live.posedPerSecond) : model.status)
         .toolbar {
             ToolbarItemGroup {
                 if camera.isOn, !camera.choices.isEmpty {
@@ -51,9 +52,9 @@ struct ContentView: View {
                 Toggle(isOn: Binding { camera.isOn } set: { on in
                     if on {
                         model.player?.pause()
-                        Task { await camera.turnOn() }
+                        Task { await camera.turnOn(feeding: live.start()) }
                     } else {
-                        camera.turnOff()
+                        turnCameraOff()
                     }
                 }) {
                     Label("Camera", systemImage: "camera")
@@ -88,14 +89,21 @@ struct ContentView: View {
 
     /// A clip opened while the camera is on takes its place.
     private func open(_ url: URL, securityScoped: Bool = false) {
-        camera.turnOff()
+        turnCameraOff()
         model.open(url, securityScoped: securityScoped)
+    }
+
+    private func turnCameraOff() {
+        camera.turnOff()
+        live.stop()
     }
 }
 
-/// The camera's live picture, or why there isn't one.
+/// The camera's live picture with the overlay, or why there isn't one.
 struct CameraView: View {
     let camera: Camera
+    let live: LiveModel
+    let style: OverlayStyle
 
     var body: some View {
         switch camera.status {
@@ -115,6 +123,7 @@ struct CameraView: View {
         case .running:
             if let capture = camera.capture {
                 CameraPreview(session: capture.session, cameraID: camera.current)
+                    .overlay { LiveOverlay(live: live, style: style) }
             }
         }
     }
