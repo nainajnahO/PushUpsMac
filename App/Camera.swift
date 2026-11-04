@@ -1,6 +1,7 @@
 import AVFoundation
 import Observation
 import OSLog
+import PushUpsEngine
 import SwiftUI
 
 nonisolated private let log = Logger(subsystem: "nainajnahO.PushUpsMac", category: "camera")
@@ -59,8 +60,9 @@ final class Camera {
         choices.first { $0.id == current }?.name
     }
 
-    /// Asks for camera access the first time, then shows the camera the Mac prefers.
-    func turnOn() async {
+    /// Asks for camera access the first time, then shows the camera the Mac prefers, its frames going to
+    /// `poser`.
+    func turnOn(feeding poser: LivePoser) async {
         guard status == .off else { return }
         status = .starting
         switch AVCaptureDevice.authorizationStatus(for: .video) {
@@ -80,6 +82,7 @@ final class Camera {
 
         let capture = CaptureSession()
         self.capture = capture
+        await capture.attach(poser)
         let discovery = AVCaptureDevice.DiscoverySession(deviceTypes: [.continuityCamera, .builtInWideAngleCamera, .external],
                                                          mediaType: .video, position: .unspecified)
         self.discovery = discovery
@@ -164,6 +167,13 @@ actor CaptureSession {
     /// Read on the main actor only by the preview layer, which AVFoundation lets attach from any thread.
     nonisolated(unsafe) let session = AVCaptureSession()
     private var input: AVCaptureDeviceInput?
+    /// The frames for Vision, on a queue of their own, so reconfiguring the session doesn't hold them up.
+    private let output = AVCaptureVideoDataOutput()
+    private let frames = DispatchQueue(label: "nainajnahO.PushUpsMac.frames", qos: .userInteractive)
+    private var sink: FrameSink?
+    /// Keeps the frames level with the horizon, as the preview is.
+    private var rotation: AVCaptureDevice.RotationCoordinator?
+    private var rotationObservation: NSKeyValueObservation?
 
     enum Failure: LocalizedError {
         case gone, refused
@@ -174,6 +184,22 @@ actor CaptureSession {
             case .refused: "The camera can't be used for capture."
             }
         }
+    }
+
+    /// Sends every frame to `poser`, as 8-bit 4:2:0, the cameras' own format and Vision's. AVFoundation's
+    /// late-frame dropping stays on, but the sink returns at once, so the dropping that counts is the poser's.
+    func attach(_ poser: LivePoser) {
+        let sink = FrameSink(poser: poser)
+        self.sink = sink
+        let format = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+        if output.availableVideoPixelFormatTypes.contains(format) {
+            output.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: format]
+        }
+        output.alwaysDiscardsLateVideoFrames = true
+        output.setSampleBufferDelegate(sink, queue: frames)
+        session.beginConfiguration()
+        if session.canAddOutput(output) { session.addOutput(output) }
+        session.commitConfiguration()
     }
 
     /// Shows the camera `id` in place of the one before, and starts the session if it isn't running.
@@ -190,10 +216,31 @@ actor CaptureSession {
         session.addInput(input)
         session.commitConfiguration()
         self.input = input
+        level(device)
         if !session.isRunning { session.startRunning() }
         let dimensions = CMVideoFormatDescriptionGetDimensions(device.activeFormat.formatDescription)
         return CameraFormat(width: Int(dimensions.width), height: Int(dimensions.height),
                             framesPerSecond: 1 / device.activeVideoMinFrameDuration.seconds)
+    }
+
+    /// Turns and un-mirrors the frames Vision gets, as the preview is, and follows the rotation as it changes.
+    private func level(_ device: AVCaptureDevice) {
+        guard let connection = output.connection(with: .video) else { return }
+        if connection.isVideoMirroringSupported { connection.isVideoMirrored = false }
+        let rotation = AVCaptureDevice.RotationCoordinator(device: device, previewLayer: nil)
+        self.rotation = rotation
+        // AVFoundation delivers its changes on the main queue: the turn is made back on this actor.
+        rotationObservation = rotation.observe(\.videoRotationAngleForHorizonLevelCapture, options: [.initial, .new]) {
+            @Sendable [weak self] rotation, _ in
+            let angle = rotation.videoRotationAngleForHorizonLevelCapture
+            Task { await self?.turn(to: angle) }
+        }
+    }
+
+    private func turn(to angle: CGFloat) {
+        guard let connection = output.connection(with: .video), connection.isVideoRotationAngleSupported(angle) else { return }
+        connection.videoRotationAngle = angle
+        log.notice("frames turned \(angle, format: .fixed(precision: 0))°")
     }
 
     /// Stops the session and lets go of the camera.
@@ -205,6 +252,22 @@ actor CaptureSession {
             session.commitConfiguration()
         }
         input = nil
+    }
+}
+
+/// AVFoundation's delegate for the camera's frames: hands each one to Vision, on the frames' queue, and
+/// returns at once.
+private nonisolated final class FrameSink: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
+    let poser: LivePoser
+
+    init(poser: LivePoser) {
+        self.poser = poser
+    }
+
+    func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
+        // Handed on whole: nothing here touches the buffer after this.
+        nonisolated(unsafe) let frame = sampleBuffer
+        poser.receive(CMReadySampleBuffer(unsafeWithPixelBuffer: frame))
     }
 }
 
@@ -293,9 +356,11 @@ struct CameraPreview: NSViewRepresentable {
 }
 
 extension Camera {
-    /// The window's subtitle while the camera is on: what it delivers.
-    var subtitle: String {
+    /// The window's subtitle while the camera is on: what it delivers, and how much of it Vision poses.
+    func subtitle(posedPerSecond: Double?) -> String {
         guard status == .running, let format else { return "" }
-        return "\(format.width) × \(format.height) · \(format.framesPerSecond.formatted(.number.precision(.fractionLength(0)))) fps"
+        let rate = { (fps: Double) in fps.formatted(.number.precision(.fractionLength(0))) }
+        let posed = posedPerSecond.map { " · posing \(rate($0)) fps" } ?? ""
+        return "\(format.width) × \(format.height) · \(rate(format.framesPerSecond)) fps" + posed
     }
 }

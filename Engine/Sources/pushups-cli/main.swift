@@ -1,3 +1,4 @@
+import AVFoundation
 import Foundation
 import PushUpsEngine
 
@@ -18,6 +19,14 @@ case "analyze":
     let trim = option("--trim").map { number($0) as Double }
     guard let path = arguments.first, arguments.count == 1 else { usage() }
     try await printAnalysis(of: URL(filePath: path), settings: settings, trim: trim)
+case "live":
+    // pushups-cli live <clip> [--size WIDTHxHEIGHT] [--trim SECONDS]: the clip played into the live path at
+    // its own pace, as a camera would deliver it; prints what Vision kept up with.
+    arguments.removeFirst()
+    let size = option("--size").map(frameSize)
+    let trim = option("--trim").map { number($0) as Double }
+    guard let path = arguments.first, arguments.count == 1 else { usage() }
+    try await printLive(of: URL(filePath: path), size: size, trim: trim)
 default:
     usage()
 }
@@ -27,6 +36,7 @@ func usage() -> Never {
         Usage: pushups-cli poses <clip> -o <poses.json> [--trim SECONDS]
                pushups-cli analyze <clip | poses.json> [--trim SECONDS] [--down ARMS] [--up FRACTION]
                                    [--back-tolerance DEG] [--metric moving|ascent] [--side auto|left|right]
+               pushups-cli live <clip> [--size WIDTHxHEIGHT] [--trim SECONDS]
         """)
     exit(1)
 }
