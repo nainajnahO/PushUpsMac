@@ -227,7 +227,11 @@ actor CaptureSession {
     /// Turns and un-mirrors the frames Vision gets, as the preview is, and follows the rotation as it changes.
     private func level(_ device: AVCaptureDevice) {
         guard let connection = output.connection(with: .video) else { return }
-        if connection.isVideoMirroringSupported { connection.isVideoMirrored = false }
+        if connection.isVideoMirroringSupported {
+            // AVFoundation's own mirroring off first: setting it while that's on throws.
+            connection.automaticallyAdjustsVideoMirroring = false
+            connection.isVideoMirrored = false
+        }
         let rotation = AVCaptureDevice.RotationCoordinator(device: device, previewLayer: nil)
         self.rotation = rotation
         // AVFoundation delivers its changes on the main queue: the turn is made back on this actor.
@@ -318,6 +322,8 @@ struct CameraPreview: NSViewRepresentable {
         (coordinator.cameraID, coordinator.angle, coordinator.rotation) = (cameraID, nil, nil)
         guard let cameraID, let device = AVCaptureDevice(uniqueID: cameraID) else { return }
         if let connection = view.previewLayer.connection, connection.isVideoMirroringSupported {
+            // AVFoundation mirrors a front camera's picture on its own, and setting it while it does throws.
+            connection.automaticallyAdjustsVideoMirroring = false
             connection.isVideoMirrored = false
         }
         let rotation = AVCaptureDevice.RotationCoordinator(device: device, previewLayer: view.previewLayer)
