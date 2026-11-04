@@ -12,15 +12,18 @@ struct ContentView: View {
                 .navigationSplitViewColumnWidth(min: 250, ideal: 290)
         } detail: {
             if let player = model.player {
-                VStack(spacing: 0) {
+                // The panel under the clip, its height yours to drag.
+                VSplitView {
                     PlayerView(player: player) {
                         if let analysis = model.analysis, let poses = model.poses {
                             PlayerOverlay(analysis: analysis, size: CGSize(width: poses.width, height: poses.height))
                                 .environment(model)
                         }
                     }
+                    .frame(minHeight: 200)
                     if let analysis = model.analysis {
                         PlayerPanel(analysis: analysis)
+                            .frame(minHeight: 260, idealHeight: 340)
                     }
                 }
             } else {
@@ -139,10 +142,28 @@ struct RepRowView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
-            Text("\(Text(row.range).foregroundStyle(row.complete ? .green : .red)) · \(Text(row.back).foregroundStyle(row.straight ? .green : .red))")
-                .font(.caption)
+            HStack(spacing: 12) {
+                GradeLabel(text: row.range, ok: row.complete)
+                GradeLabel(text: row.back, ok: row.straight)
+            }
+            .font(.caption)
         }
         .contentShape(.rect)
+    }
+}
+
+/// One side of a rep's grade: a check or a cross as well as the colour, so it doesn't rest on colour alone.
+struct GradeLabel: View {
+    let text: String
+    let ok: Bool
+
+    var body: some View {
+        Label {
+            Text(text)
+        } icon: {
+            Image(systemName: ok ? "checkmark.circle.fill" : "xmark.circle.fill")
+                .foregroundStyle(ok ? .green : .red)
+        }
     }
 }
 
@@ -196,15 +217,13 @@ struct PlayerOverlay: View {
     }
 }
 
-/// The panel under the clip, on the model's playhead, as the overlay is. As wide as the window, at
-/// 1080 × 472.
+/// The panel under the clip: the whole set, with the model's playhead, as the overlay follows it.
 struct PlayerPanel: View {
     @Environment(ClipModel.self) private var model
     let analysis: RepCounter
 
     var body: some View {
-        PanelView(analysis: analysis, settings: model.settings, playhead: model.playhead)
-            .aspectRatio(1080 / 472, contentMode: .fit)
+        PanelView(counter: analysis, settings: model.settings, playhead: model.playhead)
     }
 }
 

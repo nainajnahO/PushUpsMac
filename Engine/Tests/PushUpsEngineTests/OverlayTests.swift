@@ -2,7 +2,7 @@ import CoreGraphics
 import Testing
 @testable import PushUpsEngine
 
-/// The overlay draws the athlete's own joints, green or red as the body line reads.
+/// The overlay draws the athlete's own joints, and which way the body line is bent past the tolerance.
 @Test(arguments: clipNames)
 func overlayIsTheAthlete(name: String) throws {
     let poses = try Poses(contentsOf: golden(name, "poses-vision.json"))
@@ -10,7 +10,8 @@ func overlayIsTheAthlete(name: String) throws {
     for frame in stride(from: 0, to: poses.frames.count, by: 7) {
         let overlay = try #require(analysis.overlay(atFrame: frame, tolerance: 14))
         #expect(overlay.joints == poses.frames[frame].joints.mapValues(\.location))
-        #expect(overlay.straight == !(abs(analysis.line[frame]) > 14))
+        let reading = analysis.line[frame]
+        #expect(overlay.bend == (abs(reading) > 14 ? (reading < 0 ? .hipsLow : .hipsHigh) : nil))
     }
 }
 
@@ -25,7 +26,7 @@ func overlayIsTheAthlete(name: String) throws {
     let analysis = RepCounter(poses: Poses(source: "plank", width: 1920, height: 1080, frames: frames), settings: Settings())
     let held = try #require(analysis.overlay(atFrame: 3, tolerance: 15))
     #expect(held.joints == analysis.overlay(atFrame: 1, tolerance: 15)?.joints)
-    #expect(held.straight)   // no body line on frame 3: drawn green
+    #expect(held.bend == nil)   // no body line on frame 3: drawn straight
     #expect(analysis.overlay(atFrame: 4, tolerance: 15) == nil)
 }
 
