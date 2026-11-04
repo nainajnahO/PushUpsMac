@@ -21,7 +21,7 @@ final class ClipModel {
     /// player's time once a frame while it plays, and on every seek or scrub, and not at all while
     /// it's paused, so nothing redraws a still frame (a `TimelineView` redrew both 60 times a second).
     private(set) var playhead = 0
-    /// The demo's `OVERLAY`: the measured near side, or the whole skeleton.
+    /// The measured near side, or the whole skeleton.
     var overlayStyle = OverlayStyle.near
     /// Of the poses, 0 to 1, while Vision runs.
     private(set) var progress = 0.0

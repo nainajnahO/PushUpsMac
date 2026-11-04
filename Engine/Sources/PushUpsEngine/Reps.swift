@@ -84,8 +84,9 @@ public struct RepCounter: Sendable {
     /// Width over height of the frames.
     let aspect: Double
 
-    /// Every frame so far.
+    /// Every frame so far, and when each is shown.
     public private(set) var poses: [Pose] = []
+    public private(set) var times: [Double] = []
     /// Fixed once the plank is found.
     public private(set) var side: Side?
     public private(set) var plank: Plank?
@@ -141,13 +142,11 @@ public struct RepCounter: Sendable {
         finish()
     }
 
-    /// Each frame's presentation time.
-    public var times: [Double] { poses.map(\.time) }
-
     /// One more frame, in order.
     public mutating func add(_ pose: Pose) {
         precondition(!isFinished, "A finished set takes no more frames")
         poses.append(pose)
+        times.append(pose.time)
         if plank == nil {
             raw.append(.nan)
             line.append(.nan)
@@ -281,7 +280,6 @@ public struct RepCounter: Sendable {
         let low = min(settle, push)
         let grade = Grade(height: heightReading, line: lineReading, plank: plank.level, span: descent...lockout,
                           push: push...lockout, settings: settings)
-        let times = times
         reps.append(Rep(number: reps.count + 1, descentFrame: descent, bottomFrame: low, pushFrame: push,
                         lockoutFrame: lockout, descentTime: times[descent], bottomTime: times[low],
                         pushTime: times[push], lockoutTime: times[lockout], depth: plank.level - height[bottom],

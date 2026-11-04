@@ -1,13 +1,12 @@
-import Accelerate
 import Charts
 import SwiftUI
 
-// The demo's panel (`src/panel.py`), under the clip: the tallies so far, the shoulder's height and
-// the body line over time up to the playhead, and each rep's push-up time as it locks out. The
-// axes are fixed for the whole clip, so nothing rescales as it plays. Swift Charts draws what the
-// demo draws with matplotlib and OpenCV; the sizes are the demo's, in pixels of a 1280-wide panel.
+// The panel under the clip: the set's tallies, the shoulder's height and the body line over time, and each
+// rep's push-up time. Swift Charts with its own axes, system fonts and colours, in light and dark. A grade is
+// shown by a symbol and a legend as well as by colour. During a set it shows the reps so far; afterwards
+// the whole set, with the playhead.
 
-/// What the panel's header shows at one frame: only the reps locked out by then count, as in the demo.
+/// What the panel's header shows: the reps locked out by `frame`.
 public struct PanelState: Sendable, Equatable {
     public var frame: Int
     /// Reps locked out by `frame`.
@@ -22,350 +21,245 @@ public struct PanelState: Sendable, Equatable {
 extension RepCounter {
     public func panelState(atFrame frame: Int, metric: Metric) -> PanelState {
         let done = done(at: frame)
-        let graded = done.compactMap(\.grade)
         return PanelState(frame: frame, done: done, averageSeconds: RepSummary(done, metric: metric)?.meanSeconds,
-                          full: graded.count { $0.complete }, straight: graded.count { $0.backOK }, graded: graded.count)
+                          full: done.count(where: \.complete), straight: done.count(where: \.straight), graded: done.count)
     }
 }
 
-/// The demo's `PANEL_SMOOTH_SECONDS`: the panel's curves are smoothed this much for display only.
-let panelSmoothSeconds = 0.08
-
-/// The demo's `display_smooth`: a centred Gaussian of `seconds` sigma, over the series with its gaps
-/// filled; gaps inside it up to `bridgeSeconds` are bridged, longer ones (and the ends) stay NaN.
-func displaySmooth(_ values: [Double], fps: Double, seconds: Double, bridgeSeconds: Double = 0.1) -> [Double] {
-    let finite = values.map(\.isFinite)
-    guard finite.count(where: { $0 }) >= 2 else { return values }
-    var filled = fillGaps(values)
-    var keep = finite
-    let limit = max(1, Int((bridgeSeconds * fps).rounded(.toNearestOrEven)))
-    var i = 0
-    while i < values.count {
-        guard !finite[i] else { i += 1; continue }
-        var j = i
-        while j < values.count, !finite[j] { j += 1 }
-        if i > 0, j < values.count, j - i <= limit { keep.replaceSubrange(i..<j, with: repeatElement(true, count: j - i)) }
-        i = j
-    }
-    let sigma = seconds * fps
-    if sigma >= 0.5, filled.count >= 3 {
-        let half = Int(3 * sigma)
-        let weights = (-half...half).map { exp(-0.5 * pow(Double($0) / sigma, 2)) }
-        let total = weights.reduce(0, +)
-        let padded = [Double](repeating: filled[0], count: half) + filled + [Double](repeating: filled[filled.count - 1], count: half)
-        // Display only, so Accelerate's sum order is fine here (the analysis's filters can't use it).
-        var smoothed = [Double](repeating: 0, count: filled.count)
-        vDSP.convolve(padded, withKernel: weights.map { $0 / total }, result: &smoothed)
-        filled = smoothed
-    }
-    return zip(keep, filled).map { $0 ? $1 : .nan }
-}
-
-/// NaN filled in linearly from the finite values around it, the ends held at the nearest finite value. A
-/// series with no NaN, or nothing but NaN, has its NaN set to 0.
-func fillGaps(_ x: [Double]) -> [Double] {
-    let known = x.indices.filter { x[$0].isFinite }
-    guard !known.isEmpty, known.count < x.count else { return x.map { $0.isFinite ? $0 : 0 } }
-    var result = x
-    var next = 0   // the first known index at or after i
-    for i in x.indices {
-        while next < known.count, known[next] < i { next += 1 }
-        if next < known.count, known[next] == i { continue }
-        if next == 0 {
-            result[i] = x[known[0]]
-        } else if next == known.count {
-            result[i] = x[known[known.count - 1]]
-        } else {
-            // The slope from the two known points around.
-            let (a, b) = (known[next - 1], known[next])
-            let slope = (x[b] - x[a]) / Double(b - a)
-            result[i] = slope * Double(i - a) + x[a]
-        }
-    }
-    return result
-}
-
-/// The panel with the playhead on frame `playhead`, for the analysis with `settings`, sized by its
-/// container: text and marks scale with the width, as the demo's do.
+/// The panel for the counter so far, with `settings`. `playhead` is the frame on screen while a clip plays;
+/// nil while counting live, when the newest frame is now.
 public struct PanelView: View {
-    let analysis: RepCounter
+    let counter: RepCounter
     let settings: Settings
-    let duration: Double
-    let playhead: Int
-    /// The shoulder's height and the body line on every frame, smoothed for display.
-    let height: [Double]
-    let line: [Double]
+    let playhead: Int?
 
-    public init(analysis: RepCounter, settings: Settings, playhead: Int) {
-        (self.analysis, self.settings, self.playhead) = (analysis, settings, playhead)
-        let times = analysis.times
-        duration = times.last ?? 0
-        // The smoothing is in frames, so it takes the clip's mean frame rate.
-        let fps = times.count > 1 ? Double(times.count - 1) / (times[times.count - 1] - times[0]) : 30
-        height = displaySmooth(analysis.raw, fps: fps, seconds: panelSmoothSeconds)
-        line = displaySmooth(analysis.line, fps: fps, seconds: panelSmoothSeconds)
+    public init(counter: RepCounter, settings: Settings, playhead: Int?) {
+        (self.counter, self.settings, self.playhead) = (counter, settings, playhead)
     }
 
-    /// When frame `frame` is shown, seconds.
-    private func time(_ frame: Int) -> Double { analysis.times[min(frame, analysis.times.count - 1)] }
+    /// The set's frames so far: the whole clip, or up to now.
+    private var duration: Double { max(counter.times.last ?? 0, 1) }
 
-    // The demo's palette, shared with the other vision-demos panels.
-    nonisolated static let background = Color(red: 0x14 / 255, green: 0x16 / 255, blue: 0x1a / 255)
-    nonisolated static let foreground = Color(red: 0xf2 / 255, green: 0xf4 / 255, blue: 0xf7 / 255)
-    nonisolated static let muted = Color(red: 0x8b / 255, green: 0x91 / 255, blue: 0x99 / 255)
-    nonisolated static let grid = Color(red: 0x2b / 255, green: 0x30 / 255, blue: 0x38 / 255)
-    nonisolated static let accent = Color(red: 0x28 / 255, green: 0xa0 / 255, blue: 0xff / 255)
+    /// The whole set so far: every rep counted.
+    private var state: PanelState {
+        counter.panelState(atFrame: .max, metric: settings.metric)
+    }
 
     public var body: some View {
-        GeometryReader { geometry in
-            let (w, h) = (geometry.size.width, geometry.size.height)
-            let s = w / 1280, m = 28 * s
-            let state = analysis.panelState(atFrame: playhead, metric: settings.metric)
-            // The demo's split: the two columns' plot areas come out the same width.
-            let (leftPad, rightPad, gap) = (112 * s, 62 * s, 16 * s)
-            let split = (w + leftPad + gap - rightPad - m) / 2
-            let top = h * 0.17 + 6 * s, floor = h - 8 * s
-            let mid = (top + floor) / 2 - 8 * s
-            VStack(spacing: 0) {
-                header(state, w: w, h: h, s: s, m: m)
-                HStack(spacing: 0) {
-                    VStack(spacing: 0) {
-                        heightChart(s, labelWidth: leftPad - 12 * s).frame(height: mid - top)
-                        lineChart(s, labelWidth: leftPad - 12 * s).frame(height: floor - mid)
+        VStack(alignment: .leading, spacing: 12) {
+            header
+            GeometryReader { geometry in
+                HStack(spacing: 12) {
+                    VStack(spacing: 12) {
+                        GroupBox("Shoulder height, in arm lengths") { heightChart }
+                        GroupBox("Body line, in degrees") { lineChart }
                     }
-                    .padding(.trailing, gap)
-                    .frame(width: split)
-                    timesChart(state, s, labelWidth: rightPad - 12 * s)
-                        .padding(.trailing, m)
+                    GroupBox("Push-up time per rep, in seconds") { timesChart }
+                        .frame(width: geometry.size.width * 0.3)
                 }
-                .padding(.top, 6 * s)
-                .padding(.bottom, 8 * s)
             }
-            .frame(width: w, height: h, alignment: .top)
-            .background(Self.background)
-            .foregroundStyle(Self.foreground)
+        }
+        .padding()
+    }
+
+    // MARK: Header
+
+    private var header: some View {
+        let state = state
+        return HStack(alignment: .firstTextBaseline, spacing: 32) {
+            stat("Push-ups") { Text(state.done.count, format: .number) }
+            stat("Average push-up time") {
+                if let average = state.averageSeconds { Text(seconds(average)) } else { Text("—").foregroundStyle(.secondary) }
+            }
+            stat("Full range") { tally(state.full, of: state.graded) }
+            stat("Straight back") { tally(state.straight, of: state.graded) }
+            Spacer(minLength: 0)
         }
     }
 
-    private func header(_ state: PanelState, w: CGFloat, h: CGFloat, s: CGFloat, m: CGFloat) -> some View {
-        func tally(_ n: Int) -> (String, Color) {
-            state.graded == 0 ? ("—", Self.muted) : ("\(n) / \(state.graded)", n == state.graded ? OverlayView.good : OverlayView.bad)
+    private func stat(_ title: String, @ViewBuilder value: () -> some View) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title).font(.caption).foregroundStyle(.secondary)
+            value().font(.title2.weight(.semibold)).monospacedDigit()
         }
-        let cells: [(label: String, value: String, color: Color, size: CGFloat)] = [
-            ("PUSH-UPS", "\(state.done.count)", Self.foreground, 40),
-            ("AVG PUSH-UP TIME", state.averageSeconds.map { seconds($0, 2) } ?? "—",
-             state.averageSeconds == nil ? Self.muted : Self.accent, 28),
-            (label: "FULL RANGE", value: tally(state.full).0, color: tally(state.full).1, size: 28),
-            (label: "STRAIGHT BACK", value: tally(state.straight).0, color: tally(state.straight).1, size: 28),
-        ]
-        return ZStack(alignment: .topLeading) {
-            ForEach(cells.indices, id: \.self) { i in
-                let x = m + (w - 2 * m) * (CGFloat(i) + 0.5) / 4
-                Text(cells[i].label).font(.system(size: 18 * s, weight: .medium)).foregroundStyle(Self.muted)
-                    .position(x: x, y: h * 0.05)
-                Text(cells[i].value).font(.system(size: cells[i].size * s, weight: .bold).monospacedDigit())
-                    .foregroundStyle(cells[i].color)
-                    .position(x: x, y: h * 0.115)
-            }
-            Rectangle().fill(Self.grid).frame(width: w - 2 * m, height: max(1, s)).position(x: w / 2, y: h * 0.17)
-        }
-        .frame(width: w, height: h * 0.17 + max(1, s), alignment: .topLeading)
     }
 
-    /// The frames up to the playhead, as (time, value, run): a run breaks where the value is NaN.
-    private func shown(_ series: [Double]) -> [(time: Double, value: Double, run: Int)] {
+    /// "2 of 3", with a check when every rep passed and a cross when one didn't.
+    @ViewBuilder
+    private func tally(_ n: Int, of graded: Int) -> some View {
+        if graded == 0 {
+            Text("—").foregroundStyle(.secondary)
+        } else {
+            let all = n == graded
+            Label {
+                Text("\(n) of \(graded)")
+            } icon: {
+                Image(systemName: all ? "checkmark.circle.fill" : "xmark.circle.fill")
+                    .foregroundStyle(all ? .green : .red)
+            }
+        }
+    }
+
+    // MARK: Charts
+
+    /// A series' frames as (time, value, run): a run breaks where the value is missing, so the line breaks
+    /// there too.
+    private func points(_ series: [Double]) -> [(time: Double, value: Double, run: Int)] {
+        let times = counter.times
         var run = 0, out: [(Double, Double, Int)] = []
-        for frame in 0...min(playhead, series.count - 1) {
-            if series[frame].isFinite { out.append((time(frame), series[frame], run)) } else { run += 1 }
+        for i in 0..<min(series.count, times.count) {
+            if series[i].isFinite { out.append((times[i], series[i], run)) } else { run += 1 }
         }
         return out
     }
 
-    /// A tick label: 10 pt at the demo's dpi, in a fixed width so stacked graphs share a left edge.
-    private func tick(_ text: String, _ s: CGFloat, width: CGFloat? = nil) -> some View {
-        Text(text).font(.system(size: 13.9 * s)).foregroundStyle(Self.muted)
-            .frame(width: width, alignment: .trailing)
+    /// When frame `frame` is shown, seconds.
+    private func time(_ frame: Int) -> Double { counter.times[min(frame, counter.times.count - 1)] }
+
+    @ChartContentBuilder
+    private var playheadMark: some ChartContent {
+        if let playhead {
+            RuleMark(x: .value("Now", time(playhead)))
+                .foregroundStyle(Color.secondary)
+                .lineStyle(StrokeStyle(lineWidth: 1))
+        }
     }
 
-    /// The demo's axes: a left and a bottom spine, nothing else, and the title over the plot's left
-    /// edge (matplotlib's 15 pt at the demo's 100 × scale dpi). The chart leaves `titleRoom` for it.
-    private func plotArea(_ plot: ChartPlotContent, _ s: CGFloat, title: String) -> some View {
-        plot.overlay(alignment: .leading) { Rectangle().fill(Self.grid).frame(width: max(1, s)) }
-            .overlay(alignment: .bottom) { Rectangle().fill(Self.grid).frame(height: max(1, s)) }
-            .overlay(alignment: .topLeading) {
-                Text(title).font(.system(size: 20.8 * s, weight: .medium)).fixedSize()
-                    .alignmentGuide(.top) { $0[.bottom] + 6 * s }
-            }
-    }
-
-    private func titleRoom(_ s: CGFloat) -> CGFloat { 30 * s }
-
-    private func thick(_ s: CGFloat) -> CGFloat { max(2, (2.4 * s).rounded(.down)) }
-
-    private func heightChart(_ s: CGFloat, labelWidth: CGFloat) -> some View {
-        // The two lines are the cutoffs themselves, by name: each rep's dots land on the side of
-        // them its grade says.
-        let up = settings.romUpFraction * analysis.top, down = settings.romDownHeight
-        let seen = height.filter(\.isFinite)
-        let low = min(seen.min() ?? down, down), high = max(seen.max() ?? analysis.top, up)
-        let pad = (high - low) * 0.07
-        let last = height.count - 1
-        let dots = analysis.reps.flatMap { rep in
-            [(rep.pushFrame, rep.grade.bottomOK), (rep.lockoutFrame, rep.grade.topOK)]
-        }.filter { $0.0 <= playhead }.map { f, ok in (time(f), height[min(f, last)], ok ? OverlayView.good : OverlayView.bad) }
-        let now = min(playhead, last)
+    /// The shoulder's height above the wrist, as the counter counts it, with the up and floor lines; each rep's
+    /// deepest point and lockout marked by whether it got there.
+    private var heightChart: some View {
+        let up = settings.romUpFraction * counter.top, floor = settings.romDownHeight
+        let seen = counter.height.filter(\.isFinite)
+        let low = min(seen.min() ?? floor, floor) - 0.1, high = max(seen.max() ?? 1, up.isFinite ? up : 1) + 0.1
+        let marks = counter.reps.flatMap { rep in
+            [(rep.bottomFrame, rep.grade.bottomOK ? "Reached" : "Short"),
+             (rep.lockoutFrame, rep.grade.topOK ? "Reached" : "Short")]
+        }.compactMap { frame, label in
+            frame < counter.height.count && counter.height[frame].isFinite
+                ? (time: time(frame), value: counter.height[frame], label: label) : nil
+        }
         return Chart {
-            ForEach([up, down], id: \.self) { y in
-                RuleMark(y: .value("Cutoff", y)).foregroundStyle(Self.muted.opacity(0.8))
-                    .lineStyle(StrokeStyle(lineWidth: 1.67 * s, dash: [5 * s, 3 * s]))
+            ForEach(Array(points(counter.height).enumerated()), id: \.offset) { _, point in
+                LineMark(x: .value("Time", point.time), y: .value("Arm lengths", point.value),
+                         series: .value("Run", point.run))
+                    .foregroundStyle(.tint)
             }
-            ForEach(Array(shown(height).enumerated()), id: \.offset) { _, point in
-                LineMark(x: .value("Time", point.time), y: .value("Height", point.value), series: .value("Run", point.run))
-                    .foregroundStyle(Self.accent).lineStyle(StrokeStyle(lineWidth: thick(s)))
+            if up.isFinite {
+                RuleMark(y: .value("Up", up))
+                    .foregroundStyle(Color.secondary)
+                    .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                    .annotation(position: .top, alignment: .leading) { Text("Up").font(.caption).foregroundStyle(.secondary) }
             }
-            RuleMark(x: .value("Now", time(playhead))).foregroundStyle(Self.muted)
-                .lineStyle(StrokeStyle(lineWidth: max(1, (1.2 * s).rounded(.down))))
-            ForEach(Array((dots + [(time(now), height[now], Self.accent)]).enumerated()), id: \.offset) { i, dot in
-                if dot.1.isFinite {
-                    let r: CGFloat = i == dots.count ? 6 : 5
-                    PointMark(x: .value("Time", dot.0), y: .value("Height", dot.1))
-                        .foregroundStyle(Self.background).symbolSize(pow(2 * (r + 1.5) * s, 2))
-                    PointMark(x: .value("Time", dot.0), y: .value("Height", dot.1))
-                        .foregroundStyle(dot.2).symbolSize(pow(2 * r * s, 2))
-                }
+            RuleMark(y: .value("Floor", floor))
+                .foregroundStyle(Color.secondary)
+                .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                .annotation(position: .bottom, alignment: .leading) { Text("Floor").font(.caption).foregroundStyle(.secondary) }
+            ForEach(Array(marks.enumerated()), id: \.offset) { _, mark in
+                PointMark(x: .value("Time", mark.time), y: .value("Arm lengths", mark.value))
+                    .foregroundStyle(by: .value("Grade", mark.label))
+                    .symbol(by: .value("Grade", mark.label))
             }
+            playheadMark
         }
+        .chartForegroundStyleScale(["Reached": Color.green, "Short": Color.red])
+        .chartSymbolScale(["Reached": .circle, "Short": .cross])
+        .chartLegend(position: .top, alignment: .trailing)
         .chartXScale(domain: 0...duration)
-        .chartYScale(domain: (low - pad)...(high + pad))
-        .chartXAxis(.hidden)
-        .chartYAxis {
-            AxisMarks(position: .leading, values: [down, up]) { value in
-                AxisTick(length: 3 * s, stroke: StrokeStyle(lineWidth: max(1, s))).foregroundStyle(Self.muted)
-                AxisValueLabel { tick(value.as(Double.self) == up ? "up" : "floor", s, width: labelWidth) }
-            }
-        }
-        .chartPlotStyle { plotArea($0, s, title: "Vertical displacement") }
-        .padding(.top, titleRoom(s))
+        .chartYScale(domain: low...high)
+        .chartXAxis { AxisMarks { _ in AxisGridLine() } }
     }
 
-    private func lineChart(_ s: CGFloat, labelWidth: CGFloat) -> some View {
+    /// The body line, with the band it may bend within; where it leaves the band the line is heavier, and the
+    /// band's edges say which way.
+    private var lineChart: some View {
         let tolerance = settings.backToleranceDegrees
-        // Fit to the set itself, so getting up off the floor afterwards doesn't stretch the axis;
-        // it's clipped to the edge instead.
-        let inSet = (analysis.reps.first.map { first in
-            Array(line[first.descentFrame...min(analysis.reps.last!.lockoutFrame, line.count - 1)])
-        } ?? line).filter(\.isFinite)
-        let low = min(inSet.min() ?? -tolerance, -tolerance), high = max(inSet.max() ?? tolerance, tolerance)
-        let pad = (high - low) * 0.08
-        let clip = { (v: Double) in min(high + pad, max(low - pad, v)) }
-        let points = shown(line)
-        // Red where it leaves the band, so the bend shows where it happens.
-        let bent = shown(line.map { abs($0) > tolerance ? $0 : .nan })
-        let now = min(playhead, line.count - 1)
-        let span = duration
-        let step: Double = span > 40 ? 10 : span > 12 ? 5 : 1
+        let shown = points(counter.lineReading)
+        let bent = points(counter.lineReading.map { abs($0) > tolerance ? $0 : .nan })
+        // Fit to the set, so getting up off the floor afterwards doesn't stretch the axis.
+        let set = counter.reps.first.map { time($0.descentFrame)...time(counter.reps[counter.reps.count - 1].lockoutFrame) }
+        let inSet = shown.filter { set?.contains($0.time) ?? true }.map(\.value)
+        let low = min(inSet.min() ?? -tolerance, -tolerance) - 3, high = max(inSet.max() ?? tolerance, tolerance) + 3
         return Chart {
             RectangleMark(xStart: .value("Start", 0), xEnd: .value("End", duration),
                           yStart: .value("Low", -tolerance), yEnd: .value("High", tolerance))
-                .foregroundStyle(OverlayView.good.opacity(0.08))
-            RuleMark(y: .value("Straight", 0)).foregroundStyle(Self.muted.opacity(0.8))
-                .lineStyle(StrokeStyle(lineWidth: 1.67 * s, dash: [5 * s, 3 * s]))
-            ForEach(Array(points.enumerated()), id: \.offset) { _, point in
-                LineMark(x: .value("Time", point.time), y: .value("Degrees", clip(point.value)), series: .value("Run", "line \(point.run)"))
-                    .foregroundStyle(Self.foreground).lineStyle(StrokeStyle(lineWidth: thick(s) - 1))
+                .foregroundStyle(Color.green.opacity(0.12))
+            RuleMark(y: .value("Straight", 0))
+                .foregroundStyle(Color.secondary)
+                .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
+            RuleMark(y: .value("Hips high", tolerance))
+                .foregroundStyle(.clear)
+                .annotation(position: .bottom, alignment: .leading) { Text("Hips high").font(.caption).foregroundStyle(.secondary) }
+            RuleMark(y: .value("Hips low", -tolerance))
+                .foregroundStyle(.clear)
+                .annotation(position: .top, alignment: .leading) { Text("Hips low").font(.caption).foregroundStyle(.secondary) }
+            ForEach(Array(shown.enumerated()), id: \.offset) { _, point in
+                LineMark(x: .value("Time", point.time), y: .value("Degrees", min(high, max(low, point.value))),
+                         series: .value("Run", "line \(point.run)"))
+                    .foregroundStyle(Color.primary)
+                    .lineStyle(StrokeStyle(lineWidth: 1.5))
             }
             ForEach(Array(bent.enumerated()), id: \.offset) { _, point in
-                LineMark(x: .value("Time", point.time), y: .value("Degrees", clip(point.value)), series: .value("Run", "bent \(point.run)"))
-                    .foregroundStyle(OverlayView.bad).lineStyle(StrokeStyle(lineWidth: thick(s)))
+                LineMark(x: .value("Time", point.time), y: .value("Degrees", min(high, max(low, point.value))),
+                         series: .value("Run", "bent \(point.run)"))
+                    .foregroundStyle(Color.red)
+                    .lineStyle(StrokeStyle(lineWidth: 4, lineCap: .round))
             }
-            RuleMark(x: .value("Now", time(playhead))).foregroundStyle(Self.muted)
-                .lineStyle(StrokeStyle(lineWidth: max(1, (1.2 * s).rounded(.down))))
-            if line[now].isFinite {
-                PointMark(x: .value("Time", time(now)), y: .value("Degrees", clip(line[now])))
-                    .foregroundStyle(Self.background).symbolSize(pow(13 * s, 2))
-                PointMark(x: .value("Time", time(now)), y: .value("Degrees", clip(line[now])))
-                    .foregroundStyle(abs(line[now]) > tolerance ? OverlayView.bad : Self.foreground).symbolSize(pow(10 * s, 2))
-            }
+            playheadMark
         }
         .chartXScale(domain: 0...duration)
-        .chartYScale(domain: (low - pad)...(high + pad))
+        .chartYScale(domain: low...high)
         .chartXAxis {
-            AxisMarks(values: Array(stride(from: 0, through: duration, by: step))) { value in
-                AxisTick(length: 3 * s, stroke: StrokeStyle(lineWidth: max(1, s))).foregroundStyle(Self.muted)
-                AxisValueLabel { tick(String(format: "%.0fs", value.as(Double.self) ?? 0), s) }
+            AxisMarks { value in
+                AxisGridLine()
+                AxisTick()
+                AxisValueLabel { if let t = value.as(Double.self) { Text(seconds(t, digits: 0)) } }
             }
         }
-        .chartYAxis {
-            AxisMarks(position: .leading, values: [-tolerance, 0, tolerance]) { value in
-                let v = value.as(Double.self) ?? 0
-                AxisTick(length: 3 * s, stroke: StrokeStyle(lineWidth: max(1, s))).foregroundStyle(Self.muted)
-                AxisValueLabel {
-                    tick(abs(v) < 1e-6 ? "straight" : "hips \(v < 0 ? "low" : "high") \(String(format: "%.0f", abs(v)))°", s, width: labelWidth)
-                }
-            }
-        }
-        .chartPlotStyle { plotArea($0, s, title: "Body line vs. straight line") }
-        .padding(.top, titleRoom(s))
     }
 
-    private func timesChart(_ state: PanelState, _ s: CGFloat, labelWidth: CGFloat) -> some View {
-        let values = analysis.reps.map { $0.seconds(settings.metric) }
-        let n = max(values.count, 1)
-        let low = values.min() ?? 0, high = values.max() ?? 1
-        let span = max(high - low, 0.1)
-        let (yLow, yHigh) = (max(0, low - span * 0.15), high + span * 0.3)
-        // About five ticks, on a round step; two decimals where the step has two (the demo prints 0.75 as "0.8s").
-        let step = [0.05, 0.1, 0.2, 0.25, 0.5, 1, 2].first { (yHigh - yLow) / $0 <= 6 } ?? 2
-        let ticks = Array(stride(from: (yLow / step).rounded(.up) * step, to: yHigh, by: step))
-        let done = state.done.map { (number: $0.number, seconds: $0.seconds(settings.metric), straight: $0.straight, complete: $0.complete) }
-        let dot = 7 * s
+    /// Each rep's push-up time, marked by its grade, and the average.
+    private var timesChart: some View {
+        let state = state
+        let reps = state.done
         return Chart {
             if let average = state.averageSeconds {
-                RuleMark(y: .value("Mean", average)).foregroundStyle(Self.muted)
-                    .lineStyle(StrokeStyle(lineWidth: max(1, s.rounded(.down)), dash: [6 * s, 6 * s]))
+                RuleMark(y: .value("Average", average))
+                    .foregroundStyle(Color.secondary)
+                    .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                    .annotation(position: .top, alignment: .trailing) { Text("Average").font(.caption).foregroundStyle(.secondary) }
             }
-            ForEach(done, id: \.number) { rep in
-                LineMark(x: .value("Rep", rep.number), y: .value("Seconds", rep.seconds))
-                    .foregroundStyle(Self.accent).lineStyle(StrokeStyle(lineWidth: thick(s) - 1))
+            ForEach(reps, id: \.number) { rep in
+                LineMark(x: .value("Rep", rep.number), y: .value("Seconds", rep.seconds(settings.metric)))
+                    .foregroundStyle(.tint)
             }
-            ForEach(done, id: \.number) { rep in
-                PointMark(x: .value("Rep", rep.number), y: .value("Seconds", rep.seconds))
-                    .foregroundStyle(rep.complete ? Self.background : Self.foreground).symbolSize(pow(2 * (dot + 2 * s), 2))
-                if !rep.complete {
-                    // The ring around a rep that missed its range: the halo, minus its inner stroke.
-                    PointMark(x: .value("Rep", rep.number), y: .value("Seconds", rep.seconds))
-                        .foregroundStyle(Self.background).symbolSize(pow(2 * (dot + 2 * s - max(1, s)), 2))
-                }
-                PointMark(x: .value("Rep", rep.number), y: .value("Seconds", rep.seconds))
-                    .foregroundStyle(rep.straight ? Self.accent : OverlayView.bad).symbolSize(pow(2 * dot, 2))
-                    .annotation(position: .top, spacing: 8 * s) {
-                        if rep.number == done.last?.number {
-                            Text(seconds(rep.seconds, 2)).font(.system(size: 14 * s, weight: .medium))
-                                .foregroundStyle(Self.foreground)
-                        }
-                    }
+            ForEach(reps, id: \.number) { rep in
+                PointMark(x: .value("Rep", rep.number), y: .value("Seconds", rep.seconds(settings.metric)))
+                    .foregroundStyle(by: .value("Grade", label(rep)))
+                    .symbol(by: .value("Grade", label(rep)))
+                    .symbolSize(80)
             }
         }
-        .chartXScale(domain: 0.4...(Double(n) + 0.6))
-        .chartYScale(domain: yLow...yHigh)
-        .chartXAxis {
-            AxisMarks(values: Array(stride(from: 1, through: n, by: max(1, (n + 11) / 12)))) { value in
-                AxisTick(length: 3 * s, stroke: StrokeStyle(lineWidth: max(1, s))).foregroundStyle(Self.muted)
-                AxisValueLabel { tick("\(value.as(Int.self) ?? 0)", s) }
-            }
+        .chartForegroundStyleScale(["Good": Color.green, "Short": Color.red, "Bent": Color.orange, "Short and bent": Color.purple])
+        .chartSymbolScale(["Good": .circle, "Short": .cross, "Bent": .triangle, "Short and bent": .diamond])
+        .chartLegend(position: .top, alignment: .leading)
+        .chartXScale(domain: 0.5...(Double(max(counter.count, 1)) + 0.5))
+        .chartXAxis { AxisMarks(values: Array(1...max(counter.count, 1))) { value in
+            AxisGridLine()
+            AxisValueLabel { if let n = value.as(Int.self) { Text("Rep \(n)") } }
+        } }
+    }
+
+    private func label(_ rep: Rep) -> String {
+        switch (rep.complete, rep.straight) {
+        case (true, true): "Good"
+        case (false, true): "Short"
+        case (true, false): "Bent"
+        case (false, false): "Short and bent"
         }
-        .chartYAxis {
-            AxisMarks(position: .leading, values: ticks) { value in
-                AxisTick(length: 3 * s, stroke: StrokeStyle(lineWidth: max(1, s))).foregroundStyle(Self.muted)
-                AxisValueLabel { tick(seconds(value.as(Double.self) ?? 0, step < 0.1 || step == 0.25 ? 2 : 1), s, width: labelWidth) }
-            }
-        }
-        .chartPlotStyle { plotArea($0, s, title: "Push-up time per rep") }
-        .padding(.top, titleRoom(s))
     }
 }
 
-/// Seconds with the reader's decimal separator, as the app's sidebar writes them ("0.96s", "0,96s").
-private func seconds(_ value: Double, _ digits: Int) -> String {
-    value.formatted(.number.precision(.fractionLength(digits))) + "s"
+/// Seconds with the reader's decimal separator, as the sidebar writes them ("0.96 s", "0,96 s").
+private func seconds(_ value: Double, digits: Int = 2) -> String {
+    value.formatted(.number.precision(.fractionLength(digits))) + " s"
 }
