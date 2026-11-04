@@ -22,7 +22,9 @@ func golden(_ components: String...) -> URL {
     components.reduce(repository.appending(component: "golden")) { $0.appending(component: $1) }
 }
 
-/// The clips with Vision poses in golden/.
+/// The clips with Vision poses in golden/, made by `pushups-cli poses clips/<clip>.mov -o
+/// golden/<clip>/poses-vision.json`, with `--trim` set to the clip's `trim_seconds` in truth.json
+/// (half-reps: `--trim 8`, as the athlete stands up after 8 s).
 let clipNames = ["clean-left", "clean-right", "fast-reps", "half-reps", "hips-high", "hips-low"]
 
 /// Every golden poses file: a frame per frame of the clip, in the order shown, each joint inside the
