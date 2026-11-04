@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import os
 import PushUpsEngine
 
 // A stand-in for the camera, for measuring the live path without one: a clip's frames handed to
@@ -18,8 +19,8 @@ func frameSize(_ text: String) -> CGSize {
 struct LiveRun {
     /// The set as the app counts it live.
     var set: LiveSet
-    /// Each rep as it was counted, and how long after its lockout frame arrived, seconds.
-    var counted: [(rep: Rep, delay: Double)] = []
+    /// Each rep as it was counted, when, and how long after its lockout frame arrived, seconds.
+    var counted: [(rep: Rep, at: ContinuousClock.Instant, delay: Double)] = []
     var frames: [LiveFrame] = []
     /// From each frame's arrival to its overlay being ready, on the main actor, seconds.
     var delays: [Double] = []
@@ -47,13 +48,13 @@ func playLive(_ url: URL, size: CGSize?, trim: Double?, settings: Settings) asyn
         // The overlay is ready, and any rep counted: what the app's views draw next.
         let now = ContinuousClock.now
         run.delays.append((now - frame.arrived) / .seconds(1))
-        for rep in counted { run.counted.append((rep, (now - run.set.arrivals[rep.lockoutFrame]) / .seconds(1))) }
+        for rep in counted { run.counted.append((rep, now, (now - run.set.arrivals[rep.lockoutFrame]) / .seconds(1))) }
         run.frames.append(frame)
         (run.width, run.height) = (frame.width, frame.height)
     }
     // The set ends with the clip: a rep still going counts now, if it's a push-up.
     let now = ContinuousClock.now
-    for rep in run.set.finish() { run.counted.append((rep, (now - run.set.arrivals[rep.lockoutFrame]) / .seconds(1))) }
+    for rep in run.set.finish() { run.counted.append((rep, now, (now - run.set.arrivals[rep.lockoutFrame]) / .seconds(1))) }
     let delivery = try await camera.value
     (run.received, run.dropped, run.failed, run.lastError) = poser.counts
     (run.lateness, run.span) = (delivery.lateness, delivery.span)
@@ -98,7 +99,7 @@ private func deliver(_ url: URL, size: CGSize?, trim: Double?,
 /// The live run's numbers, one block, then the reps counted live; with `clip`, the same set's poses as the
 /// app reads them from a clip (a golden poses JSON), counted, and counted on the live run's frames only.
 @MainActor
-func printLive(of url: URL, size: CGSize?, trim: Double?, settings: Settings, clip: URL?) async throws {
+func printLive(of url: URL, size: CGSize?, trim: Double?, settings: Settings, clip: URL?, speak: Bool) async throws {
     let run = try await playLive(url, size: size, trim: trim, settings: settings)
     let fps = Double(run.received - 1) / run.span
     let posedFPS = Double(run.frames.count - 1) / run.span
@@ -119,11 +120,12 @@ func printLive(of url: URL, size: CGSize?, trim: Double?, settings: Settings, cl
         """)
     guard let counter = run.set.counter else { return }
     print("  counted live: \(summary(counter))")
-    for (rep, delay) in run.counted {
+    for (rep, _, delay) in run.counted {
         // Counted at the end of the set, not from the frames after its lockout.
         let atEnd = rep.lockoutFrame + RepCounter.framesAfterLockout >= counter.poses.count
         print("  rep \(rep.number) counted \(fixed(delay * 1000, 0)) ms after its lockout\(atEnd ? " (at the end of the set)" : ""): \(describe(rep))")
     }
+    if speak { await printSpoken(run.counted) }
     guard let clip else { return }
     let poses = try Poses(contentsOf: clip)
     let whole = RepCounter(poses: poses, settings: settings)
@@ -156,4 +158,48 @@ func compare(_ reps: [Rep], _ other: [Rep]) -> String {
     guard reps.count == other.count else { return "a different count" }
     let differing = zip(reps, other).filter { $0.grade.reason != $1.grade.reason || $0.grade.backLabel != $1.grade.backLabel }
     return differing.isEmpty ? "the same count and grades" : "rep \(differing.map { String($0.0.number) }.joined(separator: ", ")) graded differently"
+}
+
+
+/// What the app would say for each rep live, with cues, and how long it takes to say: each utterance
+/// rendered to audio buffers by `AVSpeechSynthesizer.write`, never played. The app cuts a rep's words short
+/// at once when the next rep is counted first.
+@MainActor
+func printSpoken(_ counted: [(rep: Rep, at: ContinuousClock.Instant, delay: Double)]) async {
+    let synthesizer = AVSpeechSynthesizer()
+    for (i, entry) in counted.enumerated() {
+        let utterance = entry.rep.utterance(cues: true)
+        let seconds = await spokenSeconds(utterance, by: synthesizer)
+        var line = "  says “\(utterance.speechString)” (\(fixed(seconds, 2)) s, \(utterance.voice?.name ?? "the default voice"))"
+        if i + 1 < counted.count {
+            let gap = (counted[i + 1].at - entry.at) / .seconds(1)
+            line += seconds > gap ? "; cut short: the next rep is counted \(fixed(gap, 2)) s later"
+                : "; done \(fixed(gap - seconds, 2)) s before the next rep is counted"
+        }
+        print(line)
+    }
+}
+
+/// How long `utterance` takes to say, from the audio `AVSpeechSynthesizer.write` renders it to. The
+/// synthesizer calls back on its own thread, and ends with an empty buffer.
+@MainActor
+func spokenSeconds(_ utterance: AVSpeechUtterance, by synthesizer: AVSpeechSynthesizer) async -> Double {
+    let total = OSAllocatedUnfairLock(initialState: (frames: 0.0, rate: 0.0, done: false))
+    return await withCheckedContinuation { continuation in
+        synthesizer.write(utterance) { @Sendable buffer in
+            guard let pcm = buffer as? AVAudioPCMBuffer else { return }
+            let (frames, rate) = (Double(pcm.frameLength), pcm.format.sampleRate)
+            let finished: Double? = total.withLock { total in
+                guard !total.done else { return nil }
+                if frames == 0 {
+                    total.done = true
+                    return total.rate > 0 ? total.frames / total.rate : 0
+                }
+                total.frames += frames
+                total.rate = rate
+                return nil
+            }
+            if let finished { continuation.resume(returning: finished) }
+        }
+    }
 }

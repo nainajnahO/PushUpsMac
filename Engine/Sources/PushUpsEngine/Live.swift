@@ -1,3 +1,4 @@
+import AVFAudio
 import CoreMedia
 import CoreVideo
 import Synchronization
@@ -164,5 +165,21 @@ public struct LiveSet: Sendable {
         for pose in counter.poses { set.counter?.add(pose) }
         set.arrivals = arrivals
         return set
+    }
+}
+
+extension AVSpeechUtterance {
+    /// Words of the spoken count, in an English voice, as the cues are English.
+    public convenience init(count words: String) {
+        self.init(string: words)
+        voice = AVSpeechSynthesisVoice(language: "en")
+    }
+}
+
+extension Rep {
+    /// The spoken count's utterance for the rep (``spoken(cues:)``): what the app says as the rep is counted,
+    /// and what the CLI renders silently to time it.
+    public func utterance(cues: Bool) -> AVSpeechUtterance {
+        AVSpeechUtterance(count: spoken(cues: cues))
     }
 }

@@ -15,7 +15,7 @@ struct Truth: Decodable {
 
 /// The misses Vision's poses and the default settings make against your notes, and where each is
 /// worked on. A known issue that stops happening fails the test, so the table stays true.
-private let knownMisses: [String: String] = [
+let knownMisses: [String: String] = [
     "down hips-low 1": "Rep 1 reads 0.66 at the bottom, over 0.60; the half rep reads 0.63 (#57)",
     "back half-reps 1": "Rep 1's body line reads +14.5°, past 14° (#56)",
 ]
@@ -81,4 +81,22 @@ func repsNeverChangeOnceCounted(name: String) throws {
         let delay = poses.frames[frame].time - poses.frames[rep.lockoutFrame].time
         print("\(name) rep \(rep.number): counted \(String(format: "%.0f", delay * 1000)) ms after its lockout")
     }
+}
+
+/// What's said for each rep, with cues, against what your notes would have it say: the number, then the
+/// range and the back where they fell short. A rep with a known miss above says what the counter graded.
+@Test(arguments: clipNames)
+func spokenAsYourNotes(name: String) throws {
+    let truth = try JSONDecoder().decode(Truth.self, from: Data(contentsOf: golden(name, "truth.json")))
+    let analysis = RepCounter(poses: try Poses(contentsOf: golden(name, "poses-vision.json")), settings: Settings())
+    for (rep, note) in zip(analysis.reps, truth.per_rep) {
+        let expected = ([String(note.rep)] + [note.reason, note.back].filter { $0 != "full" && $0 != "straight" })
+            .joined(separator: ", ")
+        if let miss = knownMisses["down \(name) \(rep.number)"] ?? knownMisses["back \(name) \(rep.number)"] {
+            withKnownIssue(Comment(rawValue: miss)) { #expect(rep.spoken(cues: true) == expected) }
+        } else {
+            #expect(rep.spoken(cues: true) == expected)
+        }
+    }
+    print("\(name) says: " + analysis.reps.map { "“\($0.spoken(cues: true))”" }.joined(separator: ", "))
 }
