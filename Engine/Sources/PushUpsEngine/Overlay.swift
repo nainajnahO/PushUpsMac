@@ -20,7 +20,7 @@ public struct OverlayFrame: Sendable, Equatable {
     public var straight: Bool
 }
 
-extension RepAnalysis {
+extension RepCounter {
     /// The frame on screen `time` seconds into the clip: the last one shown by then, or the first.
     public func frame(at time: Double) -> Int {
         times.lastIndex { $0 <= time } ?? 0
@@ -33,7 +33,7 @@ extension RepAnalysis {
               let held = stride(from: frame, through: max(0, frame - 2), by: -1).first(where: { !poses[$0].joints.isEmpty })
         else { return nil }
         let reading = line[frame]
-        return OverlayFrame(joints: poses[held].joints.mapValues(\.location), side: side,
+        return OverlayFrame(joints: poses[held].joints.mapValues(\.location), side: side ?? pickSide(poses[...]),
                             straight: !(reading.isFinite && abs(reading) > tolerance))
     }
 }

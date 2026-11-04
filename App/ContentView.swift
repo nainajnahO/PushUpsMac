@@ -76,7 +76,9 @@ struct Sidebar: View {
                     let (full, straight, graded) = analysis.tally
                     LabeledContent("Full range", value: "\(full) of \(graded)")
                     LabeledContent("Straight back", value: "\(straight) of \(graded)")
-                    LabeledContent("Measured on", value: "the \(analysis.side.rawValue) side")
+                    if let side = analysis.side {
+                        LabeledContent("Measured on", value: "the \(side.rawValue) side")
+                    }
                 }
                 if !analysis.reps.isEmpty {
                     Section("Reps") {
@@ -89,9 +91,9 @@ struct Sidebar: View {
                 }
             }
             Section {
-                SettingSlider(title: "Down height", value: $model.settings.romDownHeight, range: 0.3...1.2, step: 0.05,
+                SettingSlider(title: "Down height", value: $model.settings.romDownHeight, range: 0.3...0.9, step: 0.05,
                               text: { $0.formatted(.number.precision(.fractionLength(2))) },
-                              help: "How close the shoulder must come to the hand at the bottom, in arm lengths above the wrist.")
+                              help: "How close the shoulder must come to the hand at the bottom, in arm lengths above the wrist, measured with the arm straight in your plank (about 1).")
                 SettingSlider(title: "Up", value: $model.settings.romUpFraction, range: 0.7...1, step: 0.01,
                               text: { $0.formatted(.percent.precision(.fractionLength(0))) },
                               help: "How far back up a rep must come at lockout, as a share of your plank height.")
@@ -114,7 +116,7 @@ struct Sidebar: View {
             } header: {
                 Text("Settings")
             } footer: {
-                Text("The defaults were calibrated on six clips of one person, filmed side-on with the phone on the floor.")
+                Text("The defaults were set on six clips of one person, filmed side-on with the phone on the floor.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -137,10 +139,8 @@ struct RepRowView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
-            if let range = row.range, let back = row.back {
-                Text("\(Text(range).foregroundStyle(row.complete ? .green : .red)) · \(Text(back).foregroundStyle(row.straight ? .green : .red))")
-                    .font(.caption)
-            }
+            Text("\(Text(row.range).foregroundStyle(row.complete ? .green : .red)) · \(Text(row.back).foregroundStyle(row.straight ? .green : .red))")
+                .font(.caption)
         }
         .contentShape(.rect)
     }
@@ -179,7 +179,7 @@ private func seconds(_ value: Double) -> String {
 /// redraw as it moves.
 struct PlayerOverlay: View {
     @Environment(ClipModel.self) private var model
-    let analysis: RepAnalysis
+    let analysis: RepCounter
     /// The frame's size as shown.
     let size: CGSize
 
@@ -200,7 +200,7 @@ struct PlayerOverlay: View {
 /// 1080 × 472.
 struct PlayerPanel: View {
     @Environment(ClipModel.self) private var model
-    let analysis: RepAnalysis
+    let analysis: RepCounter
 
     var body: some View {
         PanelView(analysis: analysis, settings: model.settings, playhead: model.playhead)

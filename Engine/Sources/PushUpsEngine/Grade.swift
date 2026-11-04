@@ -1,20 +1,16 @@
 import Foundation
 
-/// One rep's form, as the demo's `form.grade` reads it: how far down, how far back up, how
-/// straight. Every reading is an extreme of a median-filtered series, so one bad pose can't decide
-/// a rep.
+/// One rep's form: how far down, how far back up, how straight. Every reading is an extreme of a 5-frame
+/// median, so one bad pose can't decide a rep.
 public struct Grade: Sendable, Equatable {
     /// The shoulder above the wrist at the deepest point, arm lengths.
     public var bottomHeight: Double
     /// ...at lockout.
     public var topHeight: Double
-    /// What lockout had to reach: a share of the clip's plank.
+    /// What lockout had to reach: a share of the plank.
     public var topRequired: Double
     /// The body-line reading furthest from straight, signed degrees.
     public var backWorst: Double
-    /// Reported, not graded: the near elbow at its most bent and at its straightest.
-    public var bottomElbow: Double
-    public var topElbow: Double
     public var bottomOK: Bool
     public var topOK: Bool
     public var backOK: Bool
@@ -33,27 +29,18 @@ public struct Grade: Sendable, Equatable {
         return backWorst < 0 ? "hips low" : "hips high"
     }
 
-    /// Grades the rep spanning `span` (descent to lockout) with its push `push`, array positions in
-    /// the per-frame series. `height` is the raw shoulder height, `plank` its level at the top of the
-    /// clip; `elbow` is only reported.
-    init(height: [Double], line: [Double], elbow: [Double], plank: Double, span: ClosedRange<Int>,
-         push: ClosedRange<Int>, settings: Settings) {
-        let heightSmoothed = medianFilter(height, settings.romSampleFrames)
-        let lineSmoothed = medianFilter(line, settings.backSampleFrames)
-        let elbowSmoothed = medianFilter(elbow, settings.romSampleFrames)
-        // Lockout is the highest the shoulder gets on the way up, a few frames past the measured end,
-        // so a lockout reached as the speed dies away still counts.
-        let lockout = push.lowerBound...min(height.count - 1, push.upperBound + settings.romSampleFrames)
-
-        bottomHeight = extreme(heightSmoothed[span], by: <)
-        topHeight = extreme(heightSmoothed[lockout], by: >)
+    /// Grades the rep spanning `span` (descent to lockout) with its push `push`, positions in the per-frame
+    /// readings: `height` the shoulder above the wrist and `line` the body line, each through a 5-frame
+    /// median. `plank` is the plank's level.
+    init(height: [Double], line: [Double], plank: Double, span: ClosedRange<Int>, push: ClosedRange<Int>,
+         settings: Settings) {
+        bottomHeight = extreme(height[span], by: <)
+        topHeight = extreme(height[push], by: >)
         topRequired = settings.romUpFraction * plank
-        bottomElbow = extreme(elbowSmoothed[span], by: <)
-        topElbow = extreme(elbowSmoothed[lockout], by: >)
-        // The first reading furthest from straight, as `np.argmax(np.abs(seg))` picks it.
-        let readings = lineSmoothed[span].filter(\.isFinite)
+        // The first reading furthest from straight.
+        let readings = line[span].filter(\.isFinite)
         backWorst = readings.reduce(Double.nan) { worst, x in worst.isNaN || abs(x) > abs(worst) ? x : worst }
-        // An end the model couldn't see counts as short.
+        // An end Vision couldn't see counts as short.
         bottomOK = bottomHeight.isFinite && bottomHeight <= settings.romDownHeight
         topOK = topHeight.isFinite && topHeight >= topRequired
         backOK = backWorst.isFinite && abs(backWorst) <= settings.backToleranceDegrees
@@ -70,7 +57,7 @@ public struct RepSummary: Sendable, Equatable {
     public var meanSeconds: Double
     public var fastestSeconds: Double
     public var slowestSeconds: Double
-    /// 1-based rep numbers of the first fastest and the first slowest, as `np.argmin` and `np.argmax`.
+    /// 1-based rep numbers of the first fastest and the first slowest.
     public var fastestRep: Int
     public var slowestRep: Int
     public var meanEccentricSeconds: Double
@@ -90,7 +77,7 @@ public struct RepSummary: Sendable, Equatable {
     }
 }
 
-/// `np.mean` of a few values: their sum in order, over the count.
+/// The mean of a few values.
 func mean(_ values: [Double]) -> Double {
     values.reduce(0, +) / Double(values.count)
 }
@@ -104,10 +91,10 @@ public struct RepRow: Identifiable, Sendable, Equatable {
     public var pauseSeconds: Double
     /// By the metric: leaving the bottom to lockout (moving), or the deepest point to lockout (ascent).
     public var pushUpSeconds: Double
-    /// "full", "not to the floor", "not back up"; nil if the rep wasn't graded.
-    public var range: String?
-    /// "straight", "hips low", "hips high", "unseen"; nil if the rep wasn't graded.
-    public var back: String?
+    /// "full", "not to the floor", "not back up".
+    public var range: String
+    /// "straight", "hips low", "hips high", "unseen".
+    public var back: String
     public var complete: Bool
     public var straight: Bool
 }
@@ -115,7 +102,7 @@ public struct RepRow: Identifiable, Sendable, Equatable {
 extension Rep {
     public func row(metric: Metric) -> RepRow {
         RepRow(id: number, startSeconds: descentTime, downSeconds: eccentricSeconds, pauseSeconds: pauseSeconds,
-               pushUpSeconds: seconds(metric), range: grade?.reason, back: grade?.backLabel,
+               pushUpSeconds: seconds(metric), range: grade.reason, back: grade.backLabel,
                complete: complete, straight: straight)
     }
 }

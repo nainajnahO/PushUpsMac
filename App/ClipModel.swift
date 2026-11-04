@@ -5,15 +5,15 @@ import PushUpsEngine
 
 private let log = Logger(subsystem: "nainajnahO.PushUpsMac", category: "clip")
 
-/// The open clip: its player, its poses (from Vision, once), and the analysis of them with the
-/// current settings.
+/// The open clip: its player, its poses (from Vision, once), and their reps, counted with the current
+/// settings.
 @Observable
 final class ClipModel {
     private(set) var url: URL?
     private(set) var player: AVPlayer?
     private(set) var poses: Poses?
-    private(set) var analysis: RepAnalysis?
-    /// The analysis's settings, from the sidebar: each change re-grades at once, from the same poses.
+    private(set) var analysis: RepCounter?
+    /// The counter's settings, from the sidebar: each change counts the poses again at once.
     var settings = Settings() {
         didSet { reanalyze() }
     }
@@ -96,11 +96,11 @@ final class ClipModel {
         }
     }
 
-    /// The analysis of the poses with the current settings: no Vision, so at once.
+    /// The poses counted with the current settings, frame by frame as live: no Vision, so at once.
     func reanalyze() {
         guard let poses else { return }
         let start = ContinuousClock.now
-        let analysis = analyze(poses, settings: settings)
+        let analysis = RepCounter(poses: poses, settings: settings)
         self.analysis = analysis
         let (full, straight, graded) = analysis.tally
         log.notice("\(analysis.count) reps, \(full)/\(graded) full range, \(straight)/\(graded) straight back, in \((ContinuousClock.now - start) / .milliseconds(1), format: .fixed(precision: 1)) ms")
