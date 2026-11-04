@@ -16,6 +16,10 @@ func frameSize(_ text: String) -> CGSize {
 
 /// What a live run measured.
 struct LiveRun {
+    /// The set as the app counts it live.
+    var set: LiveSet
+    /// Each rep as it was counted, and how long after its lockout frame arrived, seconds.
+    var counted: [(rep: Rep, delay: Double)] = []
     var frames: [LiveFrame] = []
     /// From each frame's arrival to its overlay being ready, on the main actor, seconds.
     var delays: [Double] = []
@@ -29,24 +33,27 @@ struct LiveRun {
 }
 
 /// Plays the clip at `url` into the live path at its own pace: decoded to the 8-bit 4:2:0 frames a camera
-/// delivers, at `size` if given. The overlay is built on the main actor for each posed frame, as the app does.
+/// delivers, at `size` if given. Each posed frame is counted and its overlay built on the main actor, as the
+/// app does, and the set finished after the last.
 @MainActor
-func playLive(_ url: URL, size: CGSize?, trim: Double?) async throws -> LiveRun {
+func playLive(_ url: URL, size: CGSize?, trim: Double?, settings: Settings) async throws -> LiveRun {
     let poser = LivePoser()
     let camera = Task.detached(priority: .userInitiated) { try await deliver(url, size: size, trim: trim, to: poser) }
 
-    var run = LiveRun()
-    var recent: [Pose] = []
+    var run = LiveRun(set: LiveSet(settings: settings))
     for await frame in poser.frames {
-        recent.append(frame.pose)
-        if recent.count > 60 { recent.removeFirst() }
-        let overlay = OverlayFrame(pose: frame.pose, side: Side.picked(over: recent[...]))
-        // The overlay is ready: what the app's view draws next.
-        run.delays.append((ContinuousClock.now - frame.arrived) / .seconds(1))
-        _ = overlay
+        let counted = run.set.add(frame)
+        _ = run.set.overlay
+        // The overlay is ready, and any rep counted: what the app's views draw next.
+        let now = ContinuousClock.now
+        run.delays.append((now - frame.arrived) / .seconds(1))
+        for rep in counted { run.counted.append((rep, (now - run.set.arrivals[rep.lockoutFrame]) / .seconds(1))) }
         run.frames.append(frame)
         (run.width, run.height) = (frame.width, frame.height)
     }
+    // The set ends with the clip: a rep still going counts now, if it's a push-up.
+    let now = ContinuousClock.now
+    for rep in run.set.finish() { run.counted.append((rep, (now - run.set.arrivals[rep.lockoutFrame]) / .seconds(1))) }
     let delivery = try await camera.value
     (run.received, run.dropped, run.failed, run.lastError) = poser.counts
     (run.lateness, run.span) = (delivery.lateness, delivery.span)
@@ -88,10 +95,11 @@ private func deliver(_ url: URL, size: CGSize?, trim: Double?,
     return (lateness, span)
 }
 
-/// The live run's numbers, one block.
+/// The live run's numbers, one block, then the reps counted live; with `clip`, the same set's poses as the
+/// app reads them from a clip (a golden poses JSON), counted, and counted on the live run's frames only.
 @MainActor
-func printLive(of url: URL, size: CGSize?, trim: Double?) async throws {
-    let run = try await playLive(url, size: size, trim: trim)
+func printLive(of url: URL, size: CGSize?, trim: Double?, settings: Settings, clip: URL?) async throws {
+    let run = try await playLive(url, size: size, trim: trim, settings: settings)
     let fps = Double(run.received - 1) / run.span
     let posedFPS = Double(run.frames.count - 1) / run.span
     func ms(_ values: [Double]) -> String {
@@ -109,4 +117,43 @@ func printLive(of url: URL, size: CGSize?, trim: Double?) async throws {
           frames handed over late by: \(ms(run.lateness))
           a person on \(run.frames.count { !$0.pose.joints.isEmpty }) of \(run.frames.count) posed frames
         """)
+    guard let counter = run.set.counter else { return }
+    print("  counted live: \(summary(counter))")
+    for (rep, delay) in run.counted {
+        // Counted at the end of the set, not from the frames after its lockout.
+        let atEnd = rep.lockoutFrame + RepCounter.framesAfterLockout >= counter.poses.count
+        print("  rep \(rep.number) counted \(fixed(delay * 1000, 0)) ms after its lockout\(atEnd ? " (at the end of the set)" : ""): \(describe(rep))")
+    }
+    guard let clip else { return }
+    let poses = try Poses(contentsOf: clip)
+    let whole = RepCounter(poses: poses, settings: settings)
+    print("  the clip: \(summary(whole)); \(compare(counter.reps, whole.reps))")
+    // The clip's own poses, but only on the frames the live run posed: what the drops alone change.
+    let milliseconds = { (time: Double) in Int((time * 1000).rounded()) }
+    let kept = Set(run.frames.map { milliseconds($0.pose.time + (poses.frames.first?.time ?? 0)) })
+    let thinned = Poses(source: poses.source, width: poses.width, height: poses.height,
+                        frames: poses.frames.filter { kept.contains(milliseconds($0.time)) })
+    let dropped = RepCounter(poses: thinned, settings: settings)
+    print("  the clip on the live run's \(thinned.frames.count) of \(poses.frames.count) frames: \(summary(dropped)); \(compare(dropped.reps, whole.reps))")
+    for rep in whole.reps { print("    clip rep \(rep.number): \(describe(rep))") }
+}
+
+/// "4 reps, 4/4 full range, 4/4 straight back".
+func summary(_ counter: RepCounter) -> String {
+    let (full, straight, graded) = counter.tally
+    return "\(counter.count) reps, \(full)/\(graded) full range, \(straight)/\(graded) straight back"
+}
+
+/// A rep's grade, with its readings.
+func describe(_ rep: Rep) -> String {
+    let grade = rep.grade
+    return "\(grade.reason) (bottom \(fixed(grade.bottomHeight, 3)), top \(fixed(grade.topHeight, 2)) of \(fixed(grade.topRequired, 2))), "
+        + "\(grade.backLabel) (\(fixed(grade.backWorst, 1))°)"
+}
+
+/// Whether two sets graded alike rep by rep: the count, and each rep's range and back.
+func compare(_ reps: [Rep], _ other: [Rep]) -> String {
+    guard reps.count == other.count else { return "a different count" }
+    let differing = zip(reps, other).filter { $0.grade.reason != $1.grade.reason || $0.grade.backLabel != $1.grade.backLabel }
+    return differing.isEmpty ? "the same count and grades" : "rep \(differing.map { String($0.0.number) }.joined(separator: ", ")) graded differently"
 }

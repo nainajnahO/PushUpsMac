@@ -6,7 +6,8 @@ import SwiftUI
 
 nonisolated private let log = Logger(subsystem: "nainajnahO.PushUpsMac", category: "live")
 
-/// The live set: Vision's poses on the camera's frames as they come, and the overlay on the newest.
+/// The live set: Vision's poses on the camera's frames as they come, counted by the counter a clip goes
+/// through, and the overlay on the newest.
 @Observable
 final class LiveModel {
     /// The overlay on the newest posed frame.
@@ -15,18 +16,22 @@ final class LiveModel {
     private(set) var frameSize = CGSize.zero
     /// Frames posed a second, over the last second.
     private(set) var posedPerSecond: Double?
+    /// The set so far, for the sidebar and the panel: refreshed as each rep is counted and twice a second,
+    /// not on every frame, so the charts aren't rebuilt 30 times a second.
+    private(set) var shown: RepCounter?
 
+    @ObservationIgnored private var set = LiveSet(settings: PushUpsEngine.Settings())
+    @ObservationIgnored private var lastShown = ContinuousClock.now
     @ObservationIgnored private var poser: LivePoser?
     @ObservationIgnored private var reading: Task<Void, Never>?
-    /// The last two seconds or so of poses, for the side Vision is surer of.
-    @ObservationIgnored private var recent: [Pose] = []
     @ObservationIgnored private var timings = Timings()
 
-    /// A new set: the sink the camera's frames go to.
-    func start() -> LivePoser {
+    /// A new set, counted with `settings`: the sink the camera's frames go to.
+    func start(settings: PushUpsEngine.Settings) -> LivePoser {
         stop()
         let poser = LivePoser()
         self.poser = poser
+        set = LiveSet(settings: settings)
         timings = Timings()
         reading = Task { [weak self] in
             for await frame in poser.frames { self?.take(frame) }
@@ -35,24 +40,45 @@ final class LiveModel {
         return poser
     }
 
-    /// The camera is off: Vision finishes the frame it's on, and that's the end of the set.
+    /// A setting changed mid-set: the frames so far counted again with it, as on a clip.
+    func recount(with settings: PushUpsEngine.Settings) {
+        guard poser != nil, settings != set.settings else { return }
+        set = set.recounted(with: settings)
+        shown = set.counter
+        log.notice("counted again with the new settings: \(self.set.counter?.count ?? 0) reps")
+    }
+
+    /// The camera is off: that's the end of the set.
     func stop() {
         guard let poser else { return }
         poser.finish()
         self.poser = nil
-        (overlay, posedPerSecond, recent) = (nil, nil, [])
+        for rep in set.finish() { log.notice("rep \(rep.number) counted as the set ended: \(rep.grade.reason, privacy: .public), \(rep.grade.backLabel, privacy: .public)") }
+        if let counter = set.counter {
+            let (full, straight, graded) = counter.tally
+            log.notice("set: \(counter.count) reps, \(full)/\(graded) full range, \(straight)/\(graded) straight back")
+        }
+        (overlay, posedPerSecond, shown) = (nil, nil, nil)
         let (received, dropped, failed, lastError) = poser.counts
         log.notice("live set stopped: \(received) frames received, \(dropped) dropped while Vision was busy, \(failed) failed\(lastError.map { " (\($0))" } ?? "", privacy: .public)")
     }
 
     private func take(_ frame: LiveFrame) {
         guard let poser else { return }
-        recent.append(frame.pose)
-        if recent.count > 60 { recent.removeFirst() }
-        overlay = OverlayFrame(pose: frame.pose, side: Side.picked(over: recent[...]))
+        let counted = set.add(frame)
+        overlay = set.overlay
         frameSize = CGSize(width: frame.width, height: frame.height)
-        // The overlay is ready: the view draws it next.
-        timings.add(frame, delay: (ContinuousClock.now - frame.arrived) / .seconds(1), received: poser.counts.received)
+        // The overlay is ready, and any rep counted: the views draw them next.
+        let now = ContinuousClock.now
+        timings.add(frame, delay: (now - frame.arrived) / .seconds(1), received: poser.counts.received)
+        for rep in counted {
+            let delay = (now - set.arrivals[rep.lockoutFrame]) / .milliseconds(1)
+            log.notice("rep \(rep.number) counted \(delay, format: .fixed(precision: 0)) ms after its lockout: \(rep.grade.reason, privacy: .public), \(rep.grade.backLabel, privacy: .public)")
+        }
+        if !counted.isEmpty || now - lastShown >= .milliseconds(500) {
+            shown = set.counter
+            lastShown = now
+        }
         if let rate = timings.secondElapsed() { posedPerSecond = rate }
         if let summary = timings.summaryDue() { log.notice("\(summary, privacy: .public)") }
     }

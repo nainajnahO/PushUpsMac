@@ -129,6 +129,8 @@ public struct RepCounter: Sendable {
     static let speedFraction = 0.1
     /// Frames either side of each frame in the median and in the mean.
     static let reach = 2
+    /// The frames a rep waits for after its lockout before it's counted: the median's and the mean's reach.
+    public static let framesAfterLockout = 2 * reach + 1
 
     public init(settings: Settings, aspect: Double) {
         self.settings = settings

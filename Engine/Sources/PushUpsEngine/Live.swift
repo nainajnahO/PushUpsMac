@@ -117,17 +117,52 @@ public final class LivePoser: Sendable {
     }
 }
 
-extension OverlayFrame {
-    /// The overlay on a live frame before the counter has a plank: the athlete's joints on `side`, the body
-    /// line drawn straight.
-    public init(pose: Pose, side: Side) {
-        self.init(joints: pose.joints.mapValues(\.location), side: side, bend: nil)
-    }
-}
+/// A set counted live: each posed frame into the counter a clip goes through, as it comes. Nothing re-runs
+/// over the frames so far; a rep is counted once the smoothing has the five frames after its lockout.
+public struct LiveSet: Sendable {
+    public let settings: Settings
+    /// Nil until the first frame, whose shape the counter measures in.
+    public private(set) var counter: RepCounter?
+    /// When each frame reached the poser, by its place in the counter's poses: how long after its lockout a
+    /// rep is counted.
+    public private(set) var arrivals: [ContinuousClock.Instant] = []
 
-extension Side {
-    /// The side Vision is surer of over `poses`.
-    public static func picked(over poses: ArraySlice<Pose>) -> Side {
-        pickSide(poses)
+    public init(settings: Settings) {
+        self.settings = settings
+    }
+
+    /// The next posed frame, in order. Returns the reps it counted, usually none.
+    public mutating func add(_ frame: LiveFrame) -> ArraySlice<Rep> {
+        var counter = counter ?? RepCounter(settings: settings, aspect: Double(frame.width) / Double(frame.height))
+        let before = counter.reps.count
+        counter.add(frame.pose)
+        arrivals.append(frame.arrived)
+        self.counter = counter
+        return counter.reps[before...]
+    }
+
+    /// The set has ended. Returns the rep still going, if it counts.
+    public mutating func finish() -> ArraySlice<Rep> {
+        guard var counter, !counter.isFinished else { return [] }
+        let before = counter.reps.count
+        counter.finish()
+        self.counter = counter
+        return counter.reps[before...]
+    }
+
+    /// The overlay on the newest frame: before the plank, the joints with the body line drawn straight.
+    public var overlay: OverlayFrame? {
+        guard let counter, !counter.poses.isEmpty else { return nil }
+        return counter.overlay(atFrame: counter.poses.count - 1, tolerance: settings.backToleranceDegrees)
+    }
+
+    /// The same frames counted with `settings`, as a setting changed mid-set. Still going: not finished.
+    public func recounted(with settings: Settings) -> LiveSet {
+        var set = LiveSet(settings: settings)
+        guard let counter else { return set }
+        set.counter = RepCounter(settings: settings, aspect: counter.aspect)
+        for pose in counter.poses { set.counter?.add(pose) }
+        set.arrivals = arrivals
+        return set
     }
 }
