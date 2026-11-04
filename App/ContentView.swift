@@ -12,8 +12,10 @@ struct ContentView: View {
                 .navigationSplitViewColumnWidth(min: 250, ideal: 290)
         } detail: {
             if let player = model.player {
-                // The panel under the clip, its height yours to drag.
-                VSplitView {
+                // The panel under the clip, the two sharing the window's height. A stack, not a
+                // `VSplitView`: on macOS 27.2 the split view reports its current size as its minimum,
+                // so the window could only ever grow.
+                VStack(spacing: 0) {
                     PlayerView(player: player) {
                         if let analysis = model.analysis, let poses = model.poses {
                             PlayerOverlay(analysis: analysis, size: CGSize(width: poses.width, height: poses.height))
@@ -22,8 +24,8 @@ struct ContentView: View {
                     }
                     .frame(minHeight: 200, maxHeight: .infinity)
                     if let analysis = model.analysis {
-                        // Flexible, so the panel fills its pane instead of sitting at its minimum at the
-                        // bottom of it; tall enough that each chart's plot keeps about 80 pt.
+                        Divider()
+                        // At least 340 pt, which keeps each chart's plot at about 77 pt.
                         PlayerPanel(analysis: analysis)
                             .frame(minHeight: 340, maxHeight: .infinity)
                     }
