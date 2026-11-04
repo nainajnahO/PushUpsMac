@@ -26,6 +26,12 @@ public struct LiveFrame: Sendable {
     public var arrived: ContinuousClock.Instant
     /// How long Vision took on it.
     public var visionSeconds: Double
+
+    public init(pose: Pose, presentationTime: CMTime, width: Int, height: Int, arrived: ContinuousClock.Instant,
+                visionSeconds: Double) {
+        (self.pose, self.presentationTime, self.width, self.height) = (pose, presentationTime, width, height)
+        (self.arrived, self.visionSeconds) = (arrived, visionSeconds)
+    }
 }
 
 /// Vision on camera frames: ``receive(_:)`` each frame as the camera delivers it, upright as it's shown, and
@@ -137,7 +143,8 @@ public struct LiveSet: Sendable {
 
     /// The next posed frame, in order. Returns the reps it counted, usually none.
     public mutating func add(_ frame: LiveFrame) -> ArraySlice<Rep> {
-        var counter = counter ?? RepCounter(settings: settings, aspect: Double(frame.width) / Double(frame.height))
+        // Taken out and put back: a copy left in `self.counter` would have every array copied on each frame.
+        var counter = counter.take() ?? RepCounter(settings: settings, aspect: Double(frame.width) / Double(frame.height))
         let before = counter.reps.count
         counter.add(frame.pose)
         arrivals.append(frame.arrived)

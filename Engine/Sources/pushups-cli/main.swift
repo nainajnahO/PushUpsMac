@@ -29,10 +29,18 @@ case "live":
     let clip = option("--compare").map { URL(filePath: $0) }
     let speak = flag("--speak")
     let record = option("--record").map { URL(filePath: $0) }
+    let loops = option("--loop").map { number($0) as Int } ?? 1
     let settings = settingOptions()
     guard let path = arguments.first, arguments.count == 1 else { usage() }
     try await printLive(of: URL(filePath: path), size: size, trim: trim, settings: settings, clip: clip, speak: speak,
-                        record: record)
+                        record: record, loops: loops)
+case "speed":
+    // pushups-cli speed <poses.json> [--minutes M]: counting, the live counter and the panel on a set M minutes
+    // long (10 by default), made of the clip's poses over and over.
+    arguments.removeFirst()
+    let minutes = option("--minutes").map { number($0) as Double } ?? 10
+    guard let path = arguments.first, arguments.count == 1 else { usage() }
+    try printSpeed(of: URL(filePath: path), minutes: minutes)
 default:
     usage()
 }
@@ -43,8 +51,9 @@ func usage() -> Never {
                pushups-cli analyze <clip | poses.json> [--trim SECONDS] [--down ARMS] [--up FRACTION]
                                    [--back-tolerance DEG] [--metric moving|ascent] [--side auto|left|right]
                pushups-cli live <clip> [--size WIDTHxHEIGHT] [--trim SECONDS] [--compare <poses.json>] [--speak]
-                                [--record <movie.mov>]
+                                [--record <movie.mov>] [--loop TIMES]
                                 [--down ARMS] [--up FRACTION] [--back-tolerance DEG] [--side auto|left|right]
+               pushups-cli speed <poses.json> [--minutes MINUTES]
         """)
     exit(1)
 }
