@@ -1,3 +1,4 @@
+import Accelerate
 import Charts
 import SwiftUI
 
@@ -125,21 +126,21 @@ public struct PanelView: View {
         }
     }
 
-    /// The shoulder's height above the wrist, as the counter counts it, with the up and floor lines; each rep's
+    /// The shoulder's height above the wrist, as the grade reads it, with the up and floor lines; each rep's
     /// deepest point and lockout marked by whether it got there.
     private var heightChart: some View {
         let up = settings.romUpFraction * counter.top, floor = settings.romDownHeight
-        let seen = counter.height.filter(\.isFinite)
+        let height = displaySmoothed(counter.heightReading, times: counter.times)
+        let seen = height.filter(\.isFinite)
         let low = min(seen.min() ?? floor, floor) - 0.1, high = max(seen.max() ?? 1, up.isFinite ? up : 1) + 0.1
         let marks = counter.reps.flatMap { rep in
             [(rep.bottomFrame, rep.grade.bottomOK ? "Reached" : "Short"),
              (rep.lockoutFrame, rep.grade.topOK ? "Reached" : "Short")]
         }.compactMap { frame, label in
-            frame < counter.height.count && counter.height[frame].isFinite
-                ? (time: time(frame), value: counter.height[frame], label: label) : nil
+            frame < height.count && height[frame].isFinite ? (time: time(frame), value: height[frame], label: label) : nil
         }
         return Chart {
-            ForEach(Array(points(counter.height).enumerated()), id: \.offset) { _, point in
+            ForEach(Array(points(height).enumerated()), id: \.offset) { _, point in
                 LineMark(x: .value("Time", point.time), y: .value("Arm lengths", point.value),
                          series: .value("Run", point.run))
                     .foregroundStyle(.tint)
@@ -173,8 +174,11 @@ public struct PanelView: View {
     /// band's edges say which way.
     private var lineChart: some View {
         let tolerance = settings.backToleranceDegrees
-        let shown = points(counter.lineReading)
-        let bent = points(counter.lineReading.map { abs($0) > tolerance ? $0 : .nan })
+        let line = displaySmoothed(counter.lineReading, times: counter.times)
+        let shown = points(line)
+        // Red where the grade's own reading is past the tolerance, drawn along the smoothed line: the smoothing
+        // rounds off a peak by up to a degree or so, which would hide a bend the grade counts.
+        let bent = points(line.indices.map { abs(counter.lineReading[$0]) > tolerance ? line[$0] : .nan })
         // Fit to the set, so getting up off the floor afterwards doesn't stretch the axis.
         let set = counter.reps.first.map { time($0.descentFrame)...time(counter.reps[counter.reps.count - 1].lockoutFrame) }
         let inSet = shown.filter { set?.contains($0.time) ?? true }.map(\.value)
@@ -262,4 +266,29 @@ public struct PanelView: View {
 /// Seconds with the reader's decimal separator, as the sidebar writes them ("0.96 s", "0,96 s").
 private func seconds(_ value: Double, digits: Int = 2) -> String {
     value.formatted(.number.precision(.fractionLength(digits))) + " s"
+}
+
+/// How much the panel's curves are smoothed, for display only: a Gaussian's σ, in seconds. At 80 ms the grade's
+/// readings, a 5-frame median, lose their steps and come out as smooth at 24, 30 and 60 fps (measured on the six
+/// test clips); a rep's marks move by at most 0.03 arm lengths.
+let displaySmoothingSeconds = 0.08
+
+/// `series`, a value a frame for the frames shown at `times`, smoothed for display by a Gaussian of `sigma` seconds,
+/// so the curves look alike at any frame rate. A frame without a value stays without one, and the others are
+/// smoothed over the frames around them that have one: Accelerate convolves the values (0 where there's none) and
+/// the frames that have one, and the one is divided by the other.
+func displaySmoothed(_ series: [Double], times: [Double], sigma: Double = displaySmoothingSeconds) -> [Double] {
+    guard series.count > 1, times.count > 1, let first = times.first, let last = times.last, last > first else {
+        return series
+    }
+    let spread = sigma * Double(times.count - 1) / (last - first)   // σ in frames, at the clip's mean frame rate
+    let half = Int((3 * spread).rounded(.up))
+    guard half > 0 else { return series }
+    let kernel = (-half...half).map { exp(-0.5 * pow(Double($0) / spread, 2)) }
+    let pad = [Double](repeating: 0, count: half)
+    var sums = [Double](repeating: 0, count: series.count)
+    var weights = [Double](repeating: 0, count: series.count)
+    vDSP.convolve(pad + series.map { $0.isFinite ? $0 : 0 } + pad, withKernel: kernel, result: &sums)
+    vDSP.convolve(pad + series.map { $0.isFinite ? 1 : 0 } + pad, withKernel: kernel, result: &weights)
+    return series.indices.map { series[$0].isFinite ? sums[$0] / weights[$0] : .nan }
 }
