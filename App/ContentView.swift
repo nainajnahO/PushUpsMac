@@ -14,7 +14,7 @@ struct ContentView: View {
                 .navigationSplitViewColumnWidth(min: 250, ideal: 290)
         } detail: {
             if camera.isOn {
-                CameraView(camera: camera, live: live, style: model.overlayStyle)
+                CameraView(camera: camera, live: live, style: model.overlayStyle, settings: model.settings)
             } else if let player = model.player {
                 // The panel under the clip, the two sharing the window's height. A stack, not a
                 // `VSplitView`: on macOS 27.2 the split view reports its current size as its minimum,
@@ -41,6 +41,8 @@ struct ContentView: View {
         }
         .navigationTitle(camera.isOn ? camera.currentName ?? "Camera" : model.url?.lastPathComponent ?? "PushUpsMac")
         .navigationSubtitle(camera.isOn ? camera.subtitle(posedPerSecond: live.posedPerSecond) : model.status)
+        // A setting changed mid-set counts the set so far again with it, as on a clip.
+        .onChange(of: model.settings) { _, settings in live.recount(with: settings) }
         .toolbar {
             ToolbarItemGroup {
                 if camera.isOn, !camera.choices.isEmpty {
@@ -52,7 +54,7 @@ struct ContentView: View {
                 Toggle(isOn: Binding { camera.isOn } set: { on in
                     if on {
                         model.player?.pause()
-                        Task { await camera.turnOn(feeding: live.start()) }
+                        Task { await camera.turnOn(feeding: live.start(settings: model.settings)) }
                     } else {
                         turnCameraOff()
                     }
@@ -99,11 +101,12 @@ struct ContentView: View {
     }
 }
 
-/// The camera's live picture with the overlay, or why there isn't one.
+/// The camera's live picture with the overlay and the panel under it, or why there isn't one.
 struct CameraView: View {
     let camera: Camera
     let live: LiveModel
     let style: OverlayStyle
+    let settings: PushUpsEngine.Settings
 
     var body: some View {
         switch camera.status {
@@ -122,43 +125,37 @@ struct CameraView: View {
             ContentUnavailableView("The Camera Stopped", systemImage: "exclamationmark.triangle", description: Text(message))
         case .running:
             if let capture = camera.capture {
-                CameraPreview(session: capture.session, cameraID: camera.current)
-                    .overlay { LiveOverlay(live: live, style: style) }
+                // As a clip's: the picture over the panel, sharing the window's height.
+                VStack(spacing: 0) {
+                    CameraPreview(session: capture.session, cameraID: camera.current)
+                        .overlay { LiveOverlay(live: live, style: style) }
+                        .frame(minHeight: 200, maxHeight: .infinity)
+                    if let counter = live.shown {
+                        Divider()
+                        PanelView(counter: counter, settings: settings, playhead: nil)
+                            .frame(minHeight: 340, maxHeight: .infinity)
+                    }
+                }
             }
         }
     }
 }
 
-/// The sidebar: the clip's result, its reps, and the settings that grade them.
+/// The sidebar: the result and the reps, of the live set or the clip, and the settings that grade them.
 struct Sidebar: View {
     @Environment(ClipModel.self) private var model
     @Environment(Camera.self) private var camera
+    @Environment(LiveModel.self) private var live
 
     var body: some View {
         @Bindable var model = model
         List {
-            if !camera.isOn, let analysis = model.analysis {
-                Section("Result") {
-                    LabeledContent("Push-ups", value: "\(analysis.count)")
-                    if let summary = RepSummary(analysis.reps, metric: model.settings.metric) {
-                        LabeledContent("Average push-up time", value: seconds(summary.meanSeconds))
-                    }
-                    let (full, straight, graded) = analysis.tally
-                    LabeledContent("Full range", value: "\(full) of \(graded)")
-                    LabeledContent("Straight back", value: "\(straight) of \(graded)")
-                    if let side = analysis.side {
-                        LabeledContent("Measured on", value: "the \(side.rawValue) side")
-                    }
+            if camera.isOn {
+                if let counter = live.shown {
+                    ResultSections(analysis: counter, metric: model.settings.metric, jump: nil)
                 }
-                if !analysis.reps.isEmpty {
-                    Section("Reps") {
-                        ForEach(analysis.reps.map { $0.row(metric: model.settings.metric) }) { row in
-                            Button { model.jump(to: row) } label: { RepRowView(row: row) }
-                                .buttonStyle(.plain)
-                                .help("Show rep \(row.id)")
-                        }
-                    }
-                }
+            } else if let analysis = model.analysis {
+                ResultSections(analysis: analysis, metric: model.settings.metric, jump: model.jump(to:))
             }
             Section {
                 SettingSlider(title: "Down height", value: $model.settings.romDownHeight, range: 0.3...0.9, step: 0.05,
@@ -189,6 +186,41 @@ struct Sidebar: View {
                 Text("The defaults were set on six clips of one person, filmed side-on with the phone on the floor.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+        }
+    }
+}
+
+/// The sidebar's result and reps. On a clip, a rep jumps the player to it.
+struct ResultSections: View {
+    let analysis: RepCounter
+    let metric: Metric
+    let jump: ((RepRow) -> Void)?
+
+    var body: some View {
+        Section("Result") {
+            LabeledContent("Push-ups", value: "\(analysis.count)")
+            if let summary = RepSummary(analysis.reps, metric: metric) {
+                LabeledContent("Average push-up time", value: seconds(summary.meanSeconds))
+            }
+            let (full, straight, graded) = analysis.tally
+            LabeledContent("Full range", value: "\(full) of \(graded)")
+            LabeledContent("Straight back", value: "\(straight) of \(graded)")
+            if let side = analysis.side {
+                LabeledContent("Measured on", value: "the \(side.rawValue) side")
+            }
+        }
+        if !analysis.reps.isEmpty {
+            Section("Reps") {
+                ForEach(analysis.reps.map { $0.row(metric: metric) }) { row in
+                    if let jump {
+                        Button { jump(row) } label: { RepRowView(row: row) }
+                            .buttonStyle(.plain)
+                            .help("Show rep \(row.id)")
+                    } else {
+                        RepRowView(row: row)
+                    }
+                }
             }
         }
     }

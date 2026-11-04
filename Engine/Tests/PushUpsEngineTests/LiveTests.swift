@@ -75,3 +75,65 @@ private func blankFrame(at time: Double) throws -> CMReadySampleBuffer<CVReadOnl
     print("live against clip, clean-right's first second: \(posed.count) frames posed, the near side's joints within \(String(format: "%.4f", worst)) of the frame")
     #expect(worst < 0.01)
 }
+
+/// What dropping two frames in three changes: at 8 poses a second (10 on fast-reps) the deepest frame can fall
+/// between the frames kept. Live at 1080p poses 23–30 a second, so these stay a stress measurement (#23).
+private let knownDropMisses: [String: String] = [
+    "clean-right 3 3": "Rep 3 locks out as the clip ends; with one frame in three its top reads 0.84 of the 0.87 needed",
+    "hips-low 3 2": "Rep 2's bottom reads 0.614 against 0.581 with every frame, over the 0.60 down height",
+    "hips-low 3 3": "Rep 3's bottom reads 0.601 against 0.580 with every frame, over the 0.60 down height",
+]
+
+/// Frames Vision had no time for, dropped in a fixed pattern from each clip's poses: every second frame (a
+/// 60 fps camera posed at 30) and two of every three. The counter sees fewer frames, so its five-frame
+/// windows span longer; it must still count and grade every clip as it does with every frame, but for the
+/// known misses above.
+@Test(arguments: clipNames, [2, 3])
+func droppedFramesKeepTheGrades(name: String, every: Int) throws {
+    let poses = try Poses(contentsOf: golden(name, "poses-vision.json"))
+    let whole = RepCounter(poses: poses, settings: Settings())
+    var kept = poses
+    kept.frames = poses.frames.enumerated().filter { $0.offset % every == 0 }.map(\.element)
+    let thinned = RepCounter(poses: kept, settings: Settings())
+    print("\(name), 1 frame in \(every): \(thinned.count) reps (\(whole.count) with every frame); "
+          + zip(thinned.reps, whole.reps).map { "\($0.number): \($0.grade.reason), \($0.grade.backLabel) (bottom "
+              + String(format: "%.3f", $0.grade.bottomHeight) + " against " + String(format: "%.3f", $1.grade.bottomHeight)
+              + ", top " + String(format: "%.2f", $0.grade.topHeight) + " of " + String(format: "%.2f", $0.grade.topRequired)
+              + ", back " + String(format: "%.1f", $0.grade.backWorst) + "° against " + String(format: "%.1f", $1.grade.backWorst) + "°)" }
+              .joined(separator: "; "))
+    #expect(thinned.count == whole.count)
+    for (rep, original) in zip(thinned.reps, whole.reps) {
+        if let miss = knownDropMisses["\(name) \(every) \(rep.number)"] {
+            withKnownIssue(Comment(rawValue: miss)) { #expect(rep.grade.reason == original.grade.reason, "rep \(rep.number)") }
+        } else {
+            #expect(rep.grade.reason == original.grade.reason, "rep \(rep.number)")
+        }
+        #expect(rep.grade.backLabel == original.grade.backLabel, "rep \(rep.number)")
+    }
+}
+
+/// A clip's poses fed to a live set as the camera's posed frames: each rep comes back once, as it's counted,
+/// and the set ends with the clip's reps. A setting changed mid-set counts the frames so far again, as if
+/// the set had started with it.
+@Test(arguments: clipNames)
+func liveSetCountsAsTheClip(name: String) throws {
+    let poses = try Poses(contentsOf: golden(name, "poses-vision.json"))
+    let clip = RepCounter(poses: poses, settings: Settings())
+    var set = LiveSet(settings: Settings())
+    var counted: [Rep] = []
+    var changed = Settings()
+    changed.romDownHeight = 0.70
+    for (i, pose) in poses.frames.enumerated() {
+        let frame = LiveFrame(pose: pose, width: poses.width, height: poses.height, arrived: .now, visionSeconds: 0)
+        counted += set.add(frame)
+        if i == poses.frames.count / 2 {
+            var fresh = RepCounter(settings: changed, aspect: poses.aspect)
+            for pose in poses.frames[...i] { fresh.add(pose) }
+            #expect(set.recounted(with: changed).counter?.reps == fresh.reps)
+        }
+    }
+    counted += set.finish()
+    #expect(counted == clip.reps)
+    #expect(set.counter?.reps == clip.reps && set.arrivals.count == poses.frames.count)
+    #expect(set.finish().isEmpty)
+}
