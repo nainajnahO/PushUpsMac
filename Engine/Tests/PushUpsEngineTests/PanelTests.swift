@@ -5,7 +5,7 @@ import Testing
 /// rep from its lockout frame, and at the end the whole clip's summary.
 @Test(arguments: clipNames)
 func panelTalliesFollowThePlayhead(name: String) throws {
-    let analysis = analyze(try Poses(contentsOf: golden(name, "poses-vision.json")))
+    let analysis = RepCounter(poses: try Poses(contentsOf: golden(name, "poses-vision.json")), settings: Settings())
     let start = analysis.panelState(atFrame: 0, metric: .moving)
     #expect(start.done.isEmpty && start.averageSeconds == nil && start.graded == 0)
     for rep in analysis.reps {

@@ -19,7 +19,7 @@ public struct PanelState: Sendable, Equatable {
     public var graded: Int
 }
 
-extension RepAnalysis {
+extension RepCounter {
     public func panelState(atFrame frame: Int, metric: Metric) -> PanelState {
         let done = done(at: frame)
         let graded = done.compactMap(\.grade)
@@ -61,10 +61,34 @@ func displaySmooth(_ values: [Double], fps: Double, seconds: Double, bridgeSecon
     return zip(keep, filled).map { $0 ? $1 : .nan }
 }
 
+/// NaN filled in linearly from the finite values around it, the ends held at the nearest finite value. A
+/// series with no NaN, or nothing but NaN, has its NaN set to 0.
+func fillGaps(_ x: [Double]) -> [Double] {
+    let known = x.indices.filter { x[$0].isFinite }
+    guard !known.isEmpty, known.count < x.count else { return x.map { $0.isFinite ? $0 : 0 } }
+    var result = x
+    var next = 0   // the first known index at or after i
+    for i in x.indices {
+        while next < known.count, known[next] < i { next += 1 }
+        if next < known.count, known[next] == i { continue }
+        if next == 0 {
+            result[i] = x[known[0]]
+        } else if next == known.count {
+            result[i] = x[known[known.count - 1]]
+        } else {
+            // The slope from the two known points around.
+            let (a, b) = (known[next - 1], known[next])
+            let slope = (x[b] - x[a]) / Double(b - a)
+            result[i] = slope * Double(i - a) + x[a]
+        }
+    }
+    return result
+}
+
 /// The panel with the playhead on frame `playhead`, for the analysis with `settings`, sized by its
 /// container: text and marks scale with the width, as the demo's do.
 public struct PanelView: View {
-    let analysis: RepAnalysis
+    let analysis: RepCounter
     let settings: Settings
     let duration: Double
     let playhead: Int
@@ -72,7 +96,7 @@ public struct PanelView: View {
     let height: [Double]
     let line: [Double]
 
-    public init(analysis: RepAnalysis, settings: Settings, playhead: Int) {
+    public init(analysis: RepCounter, settings: Settings, playhead: Int) {
         (self.analysis, self.settings, self.playhead) = (analysis, settings, playhead)
         let times = analysis.times
         duration = times.last ?? 0
@@ -187,7 +211,7 @@ public struct PanelView: View {
         let pad = (high - low) * 0.07
         let last = height.count - 1
         let dots = analysis.reps.flatMap { rep in
-            [(rep.pushFrame, rep.grade?.bottomOK ?? true), (rep.lockoutFrame, rep.grade?.topOK ?? true)]
+            [(rep.pushFrame, rep.grade.bottomOK), (rep.lockoutFrame, rep.grade.topOK)]
         }.filter { $0.0 <= playhead }.map { f, ok in (time(f), height[min(f, last)], ok ? OverlayView.good : OverlayView.bad) }
         let now = min(playhead, last)
         return Chart {

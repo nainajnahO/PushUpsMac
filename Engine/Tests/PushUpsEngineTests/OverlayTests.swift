@@ -6,7 +6,7 @@ import Testing
 @Test(arguments: clipNames)
 func overlayIsTheAthlete(name: String) throws {
     let poses = try Poses(contentsOf: golden(name, "poses-vision.json"))
-    let analysis = analyze(poses)
+    let analysis = RepCounter(poses: poses, settings: Settings())
     for frame in stride(from: 0, to: poses.frames.count, by: 7) {
         let overlay = try #require(analysis.overlay(atFrame: frame, tolerance: 14))
         #expect(overlay.joints == poses.frames[frame].joints.mapValues(\.location))
@@ -22,7 +22,7 @@ func overlayIsTheAthlete(name: String) throws {
         .leftHip: (0.55, 0.45), .leftKnee: (0.7, 0.5), .leftAnkle: (0.85, 0.55),
     ].mapValues { Joint(location: CGPoint(x: $0.0, y: $0.1), confidence: 0.9) }
     let frames = (0..<6).map { Pose(time: Double($0) / 24, joints: [2, 3, 4].contains($0) ? [:] : plank) }
-    let analysis = analyze(Poses(source: "plank", width: 1920, height: 1080, frames: frames))
+    let analysis = RepCounter(poses: Poses(source: "plank", width: 1920, height: 1080, frames: frames), settings: Settings())
     let held = try #require(analysis.overlay(atFrame: 3, tolerance: 15))
     #expect(held.joints == analysis.overlay(atFrame: 1, tolerance: 15)?.joints)
     #expect(held.straight)   // no body line on frame 3: drawn green
@@ -31,7 +31,7 @@ func overlayIsTheAthlete(name: String) throws {
 
 /// Playback time to frame: the last frame shown by then, by the frames' presentation times.
 @Test func frameAtTime() throws {
-    let analysis = analyze(try Poses(contentsOf: golden("clean-right", "poses-vision.json")))
+    let analysis = RepCounter(poses: try Poses(contentsOf: golden("clean-right", "poses-vision.json")), settings: Settings())
     // Shown at 0, 0.01, then every 1/24 s: 0.0517, 0.0933, …
     #expect(analysis.frame(at: 0) == 0)
     #expect(analysis.frame(at: 0.009) == 0)

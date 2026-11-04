@@ -89,18 +89,20 @@ func printAnalysis(of url: URL, settings: Settings, trim: Double?) async throws 
     let poses = url.pathExtension.lowercased() == "json"
         ? try Poses(contentsOf: url)
         : try await Poses.detect(in: url, trim: trim)
-    let analysis = analyze(poses, settings: settings)
-    let (full, straight, graded) = analysis.tally
-    print("\(poses.source): \(analysis.count) reps on the \(analysis.side.rawValue) side, "
-          + "\(full)/\(graded) full range, \(straight)/\(graded) straight back")
-    for rep in analysis.reps {
-        let row = rep.row(metric: settings.metric)
-        var line = "rep \(row.id)  at \(fixed(row.startSeconds, 2)) s  down \(fixed(row.downSeconds, 2)) s  "
-            + "pause \(fixed(row.pauseSeconds, 2)) s  push-up \(fixed(row.pushUpSeconds, 2)) s"
-        if let grade = rep.grade {
-            line += "  \(grade.reason) (bottom \(fixed(grade.bottomHeight, 2)), top \(fixed(grade.topHeight, 2))"
-                + " of \(fixed(grade.topRequired, 2))), \(grade.backLabel) (\(fixed(grade.backWorst, 1))°)"
-        }
-        print(line)
+    let counter = RepCounter(poses: poses, settings: settings)
+    let (full, straight, graded) = counter.tally
+    guard let plank = counter.plank, let side = counter.side else {
+        print("\(poses.source): no plank found")
+        return
+    }
+    print("\(poses.source): \(counter.count) reps on the \(side.rawValue) side, \(full)/\(graded) full range, "
+          + "\(straight)/\(graded) straight back; plank at \(fixed(counter.times[plank.frame], 2)) s (frame \(plank.frame)), "
+          + "arm \(fixed(plank.arm, 3)) frame heights, level \(fixed(plank.level, 2))")
+    for rep in counter.reps {
+        let (row, grade) = (rep.row(metric: settings.metric), rep.grade)
+        print("rep \(row.id)  at \(fixed(row.startSeconds, 2)) s  down \(fixed(row.downSeconds, 2)) s  "
+              + "pause \(fixed(row.pauseSeconds, 2)) s  push-up \(fixed(row.pushUpSeconds, 2)) s  "
+              + "\(grade.reason) (bottom \(fixed(grade.bottomHeight, 2)), top \(fixed(grade.topHeight, 2))"
+              + " of \(fixed(grade.topRequired, 2))), \(grade.backLabel) (\(fixed(grade.backWorst, 1))°)")
     }
 }
