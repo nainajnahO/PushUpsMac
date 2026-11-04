@@ -20,10 +20,12 @@ struct ContentView: View {
                                 .environment(model)
                         }
                     }
-                    .frame(minHeight: 200)
+                    .frame(minHeight: 200, maxHeight: .infinity)
                     if let analysis = model.analysis {
+                        // Flexible, so the panel fills its pane instead of sitting at its minimum at the
+                        // bottom of it; tall enough that each chart's plot keeps about 80 pt.
                         PlayerPanel(analysis: analysis)
-                            .frame(minHeight: 260, idealHeight: 340)
+                            .frame(minHeight: 340, maxHeight: .infinity)
                     }
                 }
             } else {
