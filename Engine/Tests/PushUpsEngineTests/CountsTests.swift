@@ -17,8 +17,8 @@ struct Truth: Decodable {
 /// worked on. A known issue that stops happening fails the test, so the table stays true.
 private let knownMisses: [String: String] = [
     "count fast-reps": "Lying down after the set counts as a 5th rep (#42)",
-    "down hips-low 1": "Rep 1 reads 0.75 at the bottom, over 0.70: the arm length is a median over the clip (#57)",
-    "back half-reps 1": "Rep 1's body line reads +15.5°, past 14° (#56, #57)",
+    "down hips-low 1": "Rep 1 reads 0.76 at the bottom, over 0.70: the arm length is a median over the clip (#57)",
+    "back half-reps 1": "Rep 1's body line reads +14.5°, past 14° (#56, #57)",
 ]
 
 /// Vision's poses and the analysis with the default settings, held against your counts: the number
@@ -42,7 +42,7 @@ func countsAgainstTruth(name: String) throws {
     print("\(name): \(analysis.count) reps (yours \(truth.reps)); " + pairs.map { "\($1.rep): \($0.reason), \($0.backLabel)" }.joined(separator: "; "))
 }
 
-/// A setting changes the grades without posing again: hips-low's first rep, 0.75 at the bottom, is
+/// A setting changes the grades without posing again: hips-low's first rep, 0.76 at the bottom, is
 /// full at a down height of 0.80, and its sag (−19° at worst) passes at 20°.
 @Test func changingASettingRegrades() throws {
     let poses = try Poses(contentsOf: golden("hips-low", "poses-vision.json"))

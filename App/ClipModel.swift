@@ -17,7 +17,7 @@ final class ClipModel {
     var settings = Settings() {
         didSet { reanalyze() }
     }
-    /// The source frame on screen, for the overlay and the panel: AVFoundation calls back with the
+    /// The frame on screen, for the overlay and the panel: AVFoundation calls back with the
     /// player's time once a frame while it plays, and on every seek or scrub, and not at all while
     /// it's paused, so nothing redraws a still frame (a `TimelineView` redrew both 60 times a second).
     private(set) var playhead = 0
@@ -72,11 +72,14 @@ final class ClipModel {
                     Task { @MainActor in self.progress = fraction }
                 }
                 guard !Task.isCancelled else { return }
-                log.notice("poses: \(poses.video.nFrames) frames in \((ContinuousClock.now - start) / .seconds(1), format: .fixed(precision: 1)) s")
+                log.notice("poses: \(poses.frames.count) frames in \((ContinuousClock.now - start) / .seconds(1), format: .fixed(precision: 1)) s")
                 self.poses = poses
                 isPosing = false
                 reanalyze()
-                let frame = CMTime(seconds: 1 / poses.video.fps, preferredTimescale: 600)
+                // About a frame: the mean gap between the frames' presentation times.
+                let times = poses.frames.map(\.time)
+                let gap = times.count > 1 ? (times[times.count - 1] - times[0]) / Double(times.count - 1) : 1.0 / 30
+                let frame = CMTime(seconds: gap, preferredTimescale: 600)
                 ticks = player.addPeriodicTimeObserver(forInterval: frame, queue: .main) { [weak model = self] time in
                     MainActor.assumeIsolated { model?.follow(time) }
                 }
@@ -110,8 +113,8 @@ final class ClipModel {
     }
 
     private func follow(_ time: CMTime) {
-        guard let analysis, let poses else { return }
-        let frame = analysis.sourceFrame(at: time.seconds, fps: poses.video.fps)
+        guard let analysis else { return }
+        let frame = analysis.frame(at: time.seconds)
         if frame != playhead { playhead = frame }
     }
 
@@ -127,9 +130,7 @@ actor PoseEngine {
 
     func poses(of url: URL, progress: @escaping @Sendable (Double) -> Void) async throws -> Poses {
         if let poses = cache[url] { return poses }
-        let clip = try await Clip(url: url)
-        let expected = max(1, clip.duration * clip.nominalFrameRate)
-        let poses = try await Poses.detect(in: clip) { frame in progress(min(1, Double(frame + 1) / expected)) }
+        let poses = try await Poses.detect(in: url, progress: progress)
         cache[url] = poses
         return poses
     }

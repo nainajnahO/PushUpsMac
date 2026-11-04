@@ -47,7 +47,8 @@ public enum Metric: String, Codable, Sendable, CaseIterable {
     case ascent
 }
 
-/// One top-to-bottom-to-top cycle. Frames are source frames; times are seconds (frame / fps).
+/// One top-to-bottom-to-top cycle. Frames are positions in the clip's poses; times are their
+/// presentation times, seconds.
 public struct Rep: Sendable, Equatable {
     public var number: Int
     /// The descent starts.
@@ -85,8 +86,7 @@ public struct Rep: Sendable, Equatable {
 
 /// The analysis of a clip: every per-frame series, the levels, and the reps.
 public struct RepAnalysis: Sendable {
-    /// The source frame of each returned frame; every series is indexed like these.
-    public var indices: [Int]
+    /// Each frame's presentation time; every series is indexed like these.
     public var times: [Double]
     public var side: Side
     /// Arm length, frame heights.
@@ -101,8 +101,8 @@ public struct RepAnalysis: Sendable {
     /// Near elbow, degrees: reported beside the grade, not graded.
     public var elbow: [Double]
     public var reps: [Rep]
-    /// The athlete on each returned frame (the first person `dedupe` keeps), for the overlay.
-    public var athletes: [Poses.Person?]
+    /// The athlete on each frame, for the overlay.
+    public var poses: [Pose]
 
     public var count: Int { reps.count }
 
@@ -120,10 +120,10 @@ public struct RepAnalysis: Sendable {
 
 /// The demo's `analyze`: builds the depth signal, counts reps off it and times each one's phases.
 public func analyze(_ poses: Poses, settings: Settings = Settings()) -> RepAnalysis {
-    let (indices, frames) = poses.unwrapped()
-    let times = indices.map { Double($0) / poses.video.fps }
+    let frames = poses.frames
+    let times = frames.map(\.time)
     let side = pickSide(frames, forced: settings.side)
-    let joints = Joints(frames, side: side, aspect: Double(poses.video.width) / Double(poses.video.height))
+    let joints = Joints(frames, side: side, aspect: poses.aspect)
     let arm = armLength(joints)
     let raw = shoulderHeight(joints, arm: arm)
     let line = bodyLine(joints)
@@ -158,14 +158,13 @@ public func analyze(_ poses: Poses, settings: Settings = Settings()) -> RepAnaly
                     settings: settings)
             : nil
         reps.append(Rep(number: n + 1,
-                        descentFrame: indices[descent], bottomFrame: indices[low],
-                        pushFrame: indices[push], lockoutFrame: indices[lockout],
+                        descentFrame: descent, bottomFrame: low, pushFrame: push, lockoutFrame: lockout,
                         descentTime: times[descent], bottomTime: times[low],
                         pushTime: times[push], lockoutTime: times[lockout],
                         depth: depth[bottom], grade: grade))
     }
-    return RepAnalysis(indices: indices, times: times, side: side, arm: arm, raw: raw, height: height, top: top,
-                       line: line, elbow: elbow, reps: reps, athletes: frames.map(\.first))
+    return RepAnalysis(times: times, side: side, arm: arm, raw: raw, height: height, top: top,
+                       line: line, elbow: elbow, reps: reps, poses: frames)
 }
 
 /// The demo's `_cycles`: each rep's (start, bottom) by hysteresis. Armed near the top, confirmed
