@@ -17,5 +17,7 @@
 			</array>
 		</dict>
 	</array>
+	<key>NSCameraUseContinuityCameraDeviceType</key>
+	<true/>
 </dict>
 </plist>

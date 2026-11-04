@@ -4,11 +4,13 @@ import SwiftUI
 @main
 struct PushUpsMacApp: App {
     @State private var model = ClipModel()
+    @State private var camera = Camera()
 
     var body: some Scene {
         Window("PushUpsMac", id: "main") {
             ContentView()
                 .environment(model)
+                .environment(camera)
         }
         .defaultSize(width: 1100, height: 760)
         .commands {

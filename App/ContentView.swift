@@ -4,6 +4,7 @@ import SwiftUI
 
 struct ContentView: View {
     @Environment(ClipModel.self) private var model
+    @Environment(Camera.self) private var camera
 
     var body: some View {
         @Bindable var model = model
@@ -11,7 +12,9 @@ struct ContentView: View {
             Sidebar()
                 .navigationSplitViewColumnWidth(min: 250, ideal: 290)
         } detail: {
-            if let player = model.player {
+            if camera.isOn {
+                CameraView(camera: camera)
+            } else if let player = model.player {
                 // The panel under the clip, the two sharing the window's height. A stack, not a
                 // `VSplitView`: on macOS 27.2 the split view reports its current size as its minimum,
                 // so the window could only ever grow.
@@ -35,11 +38,28 @@ struct ContentView: View {
                                        description: Text("Open a side-on clip of push-ups, or drop one here."))
             }
         }
-        .navigationTitle(model.url?.lastPathComponent ?? "PushUpsMac")
-        .navigationSubtitle(model.status)
+        .navigationTitle(camera.isOn ? camera.currentName ?? "Camera" : model.url?.lastPathComponent ?? "PushUpsMac")
+        .navigationSubtitle(camera.isOn ? camera.subtitle : model.status)
         .toolbar {
             ToolbarItemGroup {
-                if model.isPosing {
+                if camera.isOn, !camera.choices.isEmpty {
+                    Picker("Camera", selection: Binding { camera.current ?? "" } set: { camera.select($0) }) {
+                        ForEach(camera.choices) { Text($0.name).tag($0.id) }
+                    }
+                    .help("The camera to count from")
+                }
+                Toggle(isOn: Binding { camera.isOn } set: { on in
+                    if on {
+                        model.player?.pause()
+                        Task { await camera.turnOn() }
+                    } else {
+                        camera.turnOff()
+                    }
+                }) {
+                    Label("Camera", systemImage: "camera")
+                }
+                .help("Count live from a camera: your iPhone, through Continuity Camera, or another camera")
+                if !camera.isOn, model.isPosing {
                     ProgressView(value: model.progress)
                         .progressViewStyle(.circular)
                         .controlSize(.small)
@@ -53,15 +73,48 @@ struct ContentView: View {
             guard let url = urls.first,
                   (try? url.resourceValues(forKeys: [.contentTypeKey]))?.contentType?.conforms(to: .movie) == true
             else { return false }
-            model.open(url, securityScoped: true)
+            open(url, securityScoped: true)
             return true
         }
         // Clips sent by Finder's Open With and the Dock icon (the app's document types).
-        .onOpenURL { url in model.open(url) }
+        .onOpenURL { url in open(url) }
         .fileImporter(isPresented: $model.isImporting, allowedContentTypes: [.movie]) { result in
             switch result {
-            case .success(let url): model.open(url, securityScoped: true)
+            case .success(let url): open(url, securityScoped: true)
             case .failure(let error): model.importFailed(error)
+            }
+        }
+    }
+
+    /// A clip opened while the camera is on takes its place.
+    private func open(_ url: URL, securityScoped: Bool = false) {
+        camera.turnOff()
+        model.open(url, securityScoped: securityScoped)
+    }
+}
+
+/// The camera's live picture, or why there isn't one.
+struct CameraView: View {
+    let camera: Camera
+
+    var body: some View {
+        switch camera.status {
+        case .off:
+            EmptyView()
+        case .starting:
+            ProgressView("Starting the camera…")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        case .denied:
+            ContentUnavailableView("No Access to the Camera", systemImage: "video.slash",
+                                   description: Text("Turn on PushUpsMac in System Settings, under Privacy & Security, Camera."))
+        case .noCamera:
+            ContentUnavailableView("No Camera", systemImage: "video.slash",
+                                   description: Text("Stand your iPhone near the Mac with Continuity Camera on, or connect a camera."))
+        case .failed(let message):
+            ContentUnavailableView("The Camera Stopped", systemImage: "exclamationmark.triangle", description: Text(message))
+        case .running:
+            if let capture = camera.capture {
+                CameraPreview(session: capture.session, cameraID: camera.current)
             }
         }
     }
@@ -70,11 +123,12 @@ struct ContentView: View {
 /// The sidebar: the clip's result, its reps, and the settings that grade them.
 struct Sidebar: View {
     @Environment(ClipModel.self) private var model
+    @Environment(Camera.self) private var camera
 
     var body: some View {
         @Bindable var model = model
         List {
-            if let analysis = model.analysis {
+            if !camera.isOn, let analysis = model.analysis {
                 Section("Result") {
                     LabeledContent("Push-ups", value: "\(analysis.count)")
                     if let summary = RepSummary(analysis.reps, metric: model.settings.metric) {
