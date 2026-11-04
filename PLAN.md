@@ -30,7 +30,8 @@ On the near side, Vision's shoulder sits within 0.03 arm lengths of ViTPose's on
 rep counts on all six test clips. Vision takes 24–34 ms a frame on an M1 Pro, against ViTPose's 188–240 ms with its
 person detector. So Vision stays, and differences in the results come from the method, not the model. The same work
 set the defaults for a phone on the floor: down height 0.70 arm lengths (the demo's 0.40 graded 1 of your 19 reps
-right) and back tolerance 14° (#46).
+right) and back tolerance 14° (#46). Since #57 the arm is measured straight, at the plank, and in those units the down
+height is 0.60.
 
 ## Native first
 
@@ -39,7 +40,7 @@ rather than from memory. Write your own only when none fits, and say in the PR w
 
 | Job | Done by |
 |---|---|
-| The body on each frame | Vision `DetectHumanBodyPoseRequest`; `DetectHumanBodyPose3DRequest` if it grades better (#56) |
+| The body on each frame | Vision `DetectHumanBodyPoseRequest` (its 3D pose graded worse, #56) |
 | A clip's frames and their times | Vision `VideoProcessor`, timed by presentation timestamps (#55) |
 | The camera | `AVCaptureSession` with Continuity Camera (Phase Live) |
 | Counting reps | Our own counter, after trying Create ML Components' `HumanBodyActionCounter` (#57) |
@@ -74,13 +75,14 @@ so new clips (another angle, another person) are held out of tuning.
 
 ## Phases
 
-Done: Phases 0–4, Days 1–20 (setup, poses, the analysis, Vision against ViTPose, the app for clips).
+Done: Phases 0–4, Days 1–20 (setup, poses, the analysis, Vision against ViTPose, the app for clips), and
+Fundamentals (#54–#58).
 
-### Fundamentals (#54–#58)
-Rebuild on what the Mac provides, before going live.
+### Fundamentals (#54–#58), done
+Rebuilt on what the Mac provides, before going live.
 - **#54** Drop what only matches the demo, and the export (it may come back later in a native form).
 - **#55** Read poses with Vision's `VideoProcessor`, timed by their timestamps; poses as a plain Swift type.
-- **#56** Spike: Vision's 3D body pose for grading. A measurement, merged only if it wins.
+- **#56** Spike: Vision's 3D body pose for grading. A measurement, merged only if it wins. It didn't: the grades stay 2D.
 - **#57** Count rep by rep, the same way live and on a clip: a counter that only knows the frames so far.
 - **#58** Give the panel and overlay the Mac's own look, in light and dark.
 

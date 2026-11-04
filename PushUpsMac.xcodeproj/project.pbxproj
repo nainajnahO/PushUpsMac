@@ -278,10 +278,12 @@
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_RESOURCE_ACCESS_CAMERA = YES;
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = App/Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.healthcare-fitness";
+				INFOPLIST_KEY_NSCameraUsageDescription = "PushUpsMac counts your push-ups live from the camera. The video stays on your Mac.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Apache-2.0. Based on the push-ups demo in vision-demos by Jeremy Park.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -310,10 +312,12 @@
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_RESOURCE_ACCESS_CAMERA = YES;
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = App/Info.plist;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.healthcare-fitness";
+				INFOPLIST_KEY_NSCameraUsageDescription = "PushUpsMac counts your push-ups live from the camera. The video stays on your Mac.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "Apache-2.0. Based on the push-ups demo in vision-demos by Jeremy Park.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
