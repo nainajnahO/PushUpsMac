@@ -1,7 +1,6 @@
 import AVFoundation
 import CoreImage
 import ImageIO
-import UniformTypeIdentifiers
 
 /// A clip's video track, read the way the demo's ffmpeg conversion reads it: every frame the clip
 /// shows, in order, scaled to a height, and HDR tone-mapped to SDR, as 8-bit BGRA.
@@ -199,18 +198,4 @@ public final class Frames {
 
     /// The presentation time of every frame read so far.
     public var presentationTimes: [Double] { times }
-}
-
-extension Frame {
-    /// The frame as a JPEG at `url`, at quality 0.95.
-    public func writeJPEG(to url: URL, context: CIContext) throws {
-        try context.writeJPEGRepresentation(of: image, to: url, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!,
-                                            options: [kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption: 0.95])
-    }
-
-    /// The frame as a PNG at `url`.
-    public func writePNG(to url: URL) throws {
-        try CIContext().writePNGRepresentation(of: image, to: url, format: .RGBA8,
-                                               colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!)
-    }
 }

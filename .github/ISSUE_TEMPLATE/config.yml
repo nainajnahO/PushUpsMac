@@ -1,5 +1,5 @@
 blank_issues_enabled: false
 contact_links:
-  - name: Porting plan
+  - name: Plan
     url: https://github.com/nainajnahO/PushUpsMac/blob/main/PLAN.md
-    about: What's being ported, in which order, and how each step is checked against the Python demo.
+    about: What PushUpsMac is, what's being built in which order, and how each step is checked against your own counts.

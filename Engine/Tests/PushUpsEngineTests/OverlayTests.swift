@@ -6,7 +6,7 @@ import Testing
 @Test(arguments: clipNames)
 func overlayIsTheAthlete(name: String) throws {
     let poses = try Poses(contentsOf: golden(name, "poses-vision.json"))
-    let analysis = analyze(poses, settings: .app)
+    let analysis = analyze(poses)
     let byFrame = poses.byFrame
     for frame in stride(from: 0, to: poses.video.nFrames, by: 7) {
         let overlay = try #require(analysis.overlay(atSourceFrame: frame, tolerance: 14))
@@ -22,7 +22,7 @@ func overlayIsTheAthlete(name: String) throws {
     let analysis = analyze(poses)
     let held = try #require(analysis.overlay(atSourceFrame: 90, tolerance: 15))
     #expect(held.keypoints == analysis.overlay(atSourceFrame: 89, tolerance: 15)?.keypoints)
-    #expect(held.straight)   // no body line on frame 90: drawn green, as the demo does
+    #expect(held.straight)   // no body line on frame 90: drawn green
 }
 
 /// Playback time to frame: index / fps, clamped to the clip.

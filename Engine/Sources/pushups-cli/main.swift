@@ -1,95 +1,33 @@
-import CoreImage
 import Foundation
-import ImageIO
 import PushUpsEngine
 
 var arguments = Array(CommandLine.arguments.dropFirst())
 switch arguments.first {
-case "frames":
-    // pushups-cli frames <clip> [--trim SECONDS] [--height PX] [--png INDEX FILE]: reads every frame
-    // and prints what it read.
-    arguments.removeFirst()
-    let trim = option("--trim").map { number($0) as Double }
-    let height = option("--height").map { number($0) as Int }
-    let png = option("--png", count: 2).map { (number($0[0]) as Int, URL(filePath: $0[1])) }
-    let jpegs = option("--jpeg").map { URL(filePath: $0) }
-    guard let path = arguments.first, arguments.count == 1 else { usage() }
-    try await printFrames(of: URL(filePath: path), height: height, trim: trim, png: png, jpegs: jpegs)
 case "poses":
     // pushups-cli poses <clip> -o <poses.json> [--trim SECONDS] [--height PX]: Vision on every frame,
-    // written as the demo's gateway replies.
+    // as golden/<clip>/poses-vision.json holds them.
     arguments.removeFirst()
     let trim = option("--trim").map { number($0) as Double }
     let height = option("--height").map { number($0) as Int } ?? 1080
     guard let output = option("-o"), let path = arguments.first, arguments.count == 1 else { usage() }
     try await writePoses(of: URL(filePath: path), to: URL(filePath: output), height: height, trim: trim)
-case "draw":
-    // pushups-cli draw <clip> <poses.json>... --frames N,N,... -o <folder> [--trim SECONDS]: each
-    // listed frame with the joints from each poses JSON drawn on it (the first in green, then
-    // magenta, cyan), as PNGs.
-    arguments.removeFirst()
-    let trim = option("--trim").map { number($0) as Double }
-    guard let list = option("--frames"), let output = option("-o"), arguments.count >= 2 else { usage() }
-    let indices = Set(list.split(separator: ",").map { number(String($0)) as Int })
-    try await drawPoses(of: URL(filePath: arguments[0]), poses: arguments.dropFirst().map { URL(filePath: $0) },
-                        frames: indices, to: URL(filePath: output), trim: trim)
-case "overlay":
-    // pushups-cli overlay <clip> <poses.json> --frames N,N,... -o <folder> [--full] [--trim S]: the
-    // listed frames with the app's overlay drawn on them (by SwiftUI), as PNGs.
-    arguments.removeFirst()
-    let trim = option("--trim").map { number($0) as Double }
-    let full = arguments.contains("--full")
-    arguments.removeAll { $0 == "--full" }
-    guard let list = option("--frames"), let output = option("-o"), arguments.count == 2 else { usage() }
-    try await drawOverlay(of: URL(filePath: arguments[0]), poses: URL(filePath: arguments[1]),
-                          frames: Set(list.split(separator: ",").map { number(String($0)) as Int }),
-                          to: URL(filePath: output), style: full ? .full : .near, trim: trim)
-case "panel":
-    // pushups-cli panel <poses.json> --frames N,N,... -o <folder> [--size W H]: the app's panel at the
-    // listed frames (the app's default settings), as PNGs, 1080 × 472 by default (the export's).
-    arguments.removeFirst()
-    let size = option("--size", count: 2).map { (number($0[0]) as Int, number($0[1]) as Int) } ?? (1080, 472)
-    guard let list = option("--frames"), let output = option("-o"), arguments.count == 1 else { usage() }
-    try drawPanel(poses: URL(filePath: arguments[0]), frames: list.split(separator: ",").map { number(String($0)) as Int },
-                  to: URL(filePath: output), size: size)
 case "analyze":
-    // pushups-cli analyze <clip | poses.json> -o <folder> [--trim S] [--down ARMS] [--up FRACTION]
-    // [--back-tolerance DEG] [--metric moving|ascent] [--side auto|left|right]: the demo's reports.
+    // pushups-cli analyze <clip | poses.json> [--trim S] [--down ARMS] [--up FRACTION]
+    // [--back-tolerance DEG] [--metric moving|ascent] [--side auto|left|right]: prints the reps.
     arguments.removeFirst()
     let settings = settingOptions()
     let trim = option("--trim").map { number($0) as Double }
-    guard let output = option("-o"), let path = arguments.first, arguments.count == 1 else { usage() }
-    try await writeAnalysis(of: URL(filePath: path), to: URL(filePath: output), settings: settings, trim: trim)
-case "export":
-    // pushups-cli export <clip> -o <folder> [--poses poses.json] [--full] [--trim S] and analyze's
-    // settings: the annotated video (square, 1080) and the reports, as `analyze` writes them. Without
-    // --poses, Vision poses the clip first and the poses are kept as poses.json beside them.
-    arguments.removeFirst()
-    let settings = settingOptions()
-    let trim = option("--trim").map { number($0) as Double }
-    let poses = option("--poses")
-    let full = arguments.contains("--full")
-    arguments.removeAll { $0 == "--full" }
-    guard let output = option("-o"), let path = arguments.first, arguments.count == 1 else { usage() }
-    try await exportClip(URL(filePath: path), poses: poses.map { URL(filePath: $0) }, to: URL(filePath: output),
-                         settings: settings, style: full ? .full : .near, trim: trim)
+    guard let path = arguments.first, arguments.count == 1 else { usage() }
+    try await printAnalysis(of: URL(filePath: path), settings: settings, trim: trim)
 default:
-    print("pushups-cli — port of the vision-demos push-ups demo at \(PushUpsEngine.referenceCommit.prefix(7))")
     usage()
 }
 
 func usage() -> Never {
     print("""
-        Usage: pushups-cli frames <clip> [--trim SECONDS] [--height PX] [--png INDEX FILE] [--jpeg FOLDER]
-               pushups-cli poses <clip> -o <poses.json> [--trim SECONDS] [--height PX]
-               pushups-cli draw <clip> <poses.json>... --frames N,N,... -o <folder> [--trim SECONDS]
-               pushups-cli overlay <clip> <poses.json> --frames N,N,... -o <folder> [--full] [--trim SECONDS]
-               pushups-cli panel <poses.json> --frames N,N,... -o <folder> [--size W H]
-               pushups-cli analyze <clip | poses.json> -o <folder> [--trim SECONDS] [--down ARMS] [--up FRACTION]
+        Usage: pushups-cli poses <clip> -o <poses.json> [--trim SECONDS] [--height PX]
+               pushups-cli analyze <clip | poses.json> [--trim SECONDS] [--down ARMS] [--up FRACTION]
                                    [--back-tolerance DEG] [--metric moving|ascent] [--side auto|left|right]
-               pushups-cli export <clip> -o <folder> [--poses <poses.json>] [--full] [--trim SECONDS]
-                                  [--down ARMS] [--up FRACTION] [--back-tolerance DEG] [--metric moving|ascent]
-                                  [--side auto|left|right]
         """)
     exit(1)
 }
@@ -100,6 +38,10 @@ func usage() -> Never {
     guard i + count < arguments.count else { usage() }
     defer { arguments.removeSubrange(i...(i + count)) }
     return Array(arguments[(i + 1)...(i + count)])
+}
+
+@MainActor func option(_ name: String) -> String? {
+    option(name, count: 1)?.first
 }
 
 /// `value` with `digits` decimals, in any locale.
@@ -116,59 +58,15 @@ func badValue<T>() -> T {
     usage()
 }
 
-/// The analysis settings from the command line, the demo's by default.
+/// The analysis settings from the command line, the app's defaults otherwise.
 @MainActor func settingOptions() -> Settings {
-    var settings = Settings.demo
+    var settings = Settings()
     option("--down").map { settings.romDownHeight = number($0) }
     option("--up").map { settings.romUpFraction = number($0) }
     option("--back-tolerance").map { settings.backToleranceDegrees = number($0) }
     option("--metric").map { settings.metric = Metric(rawValue: $0) ?? badValue() }
     option("--side").map { settings.side = $0 == "auto" ? nil : Side(rawValue: $0) ?? badValue() }
     return settings
-}
-
-@MainActor func option(_ name: String) -> String? {
-    option(name, count: 1)?.first
-}
-
-/// Reads the clip's frames as the poses will, and prints the clip's geometry, frame rate and count.
-/// With `jpegs`, every frame goes there as `<index>.jpg`, with `frames.json` (the poses JSON's
-/// `video` object), for `tools/vitpose_poses.py` to pose the frames Vision sees.
-func printFrames(of url: URL, height: Int?, trim: Double?, png: (Int, URL)?, jpegs: URL?) async throws {
-    let clip = try await Clip(url: url)
-    let frames = try await clip.frames(height: height, trim: trim)
-    let start = ContinuousClock.now
-    let context = CIContext()
-    if let jpegs { try FileManager.default.createDirectory(at: jpegs, withIntermediateDirectories: true) }
-    while let frame = try await frames.next() {
-        if let png, frame.index == png.0 {
-            try frame.writePNG(to: png.1)
-        }
-        try jpegs.map { try frame.writeJPEG(to: $0.appending(component: String(format: "%05d.jpg", frame.index)), context: context) }
-    }
-    if let jpegs {
-        let video = Poses.Video(fps: frames.fps, width: frames.width, height: frames.height, nFrames: frames.count,
-                                source: url.lastPathComponent)
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = .sortedKeys
-        try encoder.encode(video).write(to: jpegs.appending(component: "frames.json"))
-    }
-    let seconds = (ContinuousClock.now - start) / .seconds(1)
-    let times = frames.presentationTimes
-    // How far `index / fps`, the demo's time, strays from each frame's presentation time: a frame
-    // the camera dropped makes the frames after it a frame early.
-    let drift = times.enumerated().map { abs(Double($0.offset) / frames.fps - ($0.element - times[0])) }.max() ?? 0
-    print("""
-        clip         \(url.lastPathComponent)
-        stored       \(clip.storedWidth) × \(clip.storedHeight), rotation \(clip.rotation)°
-        shown        \(clip.width) × \(clip.height)
-        read at      \(frames.width) × \(frames.height)\(clip.isHDR ? ", HDR tone-mapped to SDR" : "")
-        fps          \(fixed(frames.fps, 3)) (AVFoundation's nominal \(fixed(clip.nominalFrameRate, 3)))
-        frames       \(frames.count)\(frames.skipped > 0 ? " (and \(frames.skipped) the edit list cuts into, left out)" : "")
-        first, last  \(times.first ?? 0) s, \(times.last ?? 0) s\(trim.map { " (trimmed to \($0) s)" } ?? "")
-        index / fps  within \(fixed((drift * 1000), 1)) ms of each frame's time
-        read in      \(fixed(seconds, 2)) s
-        """)
 }
 
 /// Vision's poses on every frame of the clip, as a poses JSON.
@@ -186,130 +84,23 @@ func writePoses(of url: URL, to output: URL, height: Int, trim: Double?) async t
         """)
 }
 
-/// The listed frames with each poses JSON's joints drawn on them: the COCO skeleton without the
-/// face, as the demo draws it, in a colour per JSON.
-func drawPoses(of url: URL, poses urls: [URL], frames indices: Set<Int>, to folder: URL, trim: Double?) async throws {
-    let clip = try await Clip(url: url)
-    let poses = try urls.map { try Poses(contentsOf: $0).byFrame }
-    let frames = try await clip.frames(height: 1080, trim: trim)
-    let colors: [CGColor] = [CGColor(red: 0.2, green: 0.9, blue: 0.3, alpha: 1), CGColor(red: 0.95, green: 0.2, blue: 0.85, alpha: 1),
-                             CGColor(red: 0.1, green: 0.8, blue: 0.95, alpha: 1)]
-    // The demo's SKELETON, less the edges to the face.
-    let edges = [(15, 13), (13, 11), (16, 14), (14, 12), (11, 12), (5, 11), (6, 12), (5, 6), (5, 7), (7, 9), (6, 8), (8, 10)]
-    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-    let context = CIContext()
-    while let frame = try await frames.next() {
-        guard indices.contains(frame.index) else { continue }
-        let (width, height) = (frames.width, frames.height)
-        guard let image = context.createCGImage(frame.image, from: frame.image.extent),
-              let bitmap = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
-                                     space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                                     bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
-        else { continue }
-        bitmap.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
-        // Keypoints are y down; Core Graphics is y up.
-        bitmap.translateBy(x: 0, y: CGFloat(height))
-        bitmap.scaleBy(x: CGFloat(width), y: -CGFloat(height))
-        for (n, byFrame) in poses.enumerated() where byFrame.indices.contains(frame.index) {
-            for person in byFrame[frame.index] {
-                let point = { (i: Int) -> CGPoint? in
-                    person.keypoints[i] == [0, 0] ? nil : CGPoint(x: person.keypoints[i][0], y: person.keypoints[i][1])
-                }
-                bitmap.setStrokeColor(colors[n % colors.count])
-                bitmap.setFillColor(colors[n % colors.count])
-                bitmap.setLineWidth(3 / CGFloat(height))
-                for (a, b) in edges {
-                    if let p = point(a), let q = point(b) {
-                        bitmap.strokeLineSegments(between: [p, q])
-                    }
-                }
-                for i in 5..<17 {
-                    if let p = point(i) {
-                        let r = 5 / CGFloat(height)
-                        bitmap.fillEllipse(in: CGRect(x: p.x - r * CGFloat(height) / CGFloat(width), y: p.y - r,
-                                                      width: 2 * r * CGFloat(height) / CGFloat(width), height: 2 * r))
-                    }
-                }
-            }
-        }
-        let output = folder.appending(component: "\(clip.url.deletingPathExtension().lastPathComponent)-\(frame.index).png")
-        guard let drawn = bitmap.makeImage(),
-              let destination = CGImageDestinationCreateWithURL(output as CFURL, "public.png" as CFString, 1, nil)
-        else { continue }
-        CGImageDestinationAddImage(destination, drawn, nil)
-        CGImageDestinationFinalize(destination)
-    }
-}
-
-/// The demo's reports for a clip (posed by Vision first, the poses kept as poses.json beside them)
-/// or for a poses JSON, with the summary printed.
-func writeAnalysis(of url: URL, to folder: URL, settings: Settings, trim: Double?) async throws {
-    let poses: Poses
-    if url.pathExtension.lowercased() == "json" {
-        poses = try Poses(contentsOf: url)
-    } else {
-        poses = try await Poses.detect(in: Clip(url: url), trim: trim)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        try poses.write(to: folder.appending(component: "poses.json"))
-    }
+/// The reps in a clip (posed by Vision first) or in a poses JSON, one line each, and the tallies.
+func printAnalysis(of url: URL, settings: Settings, trim: Double?) async throws {
+    let poses = url.pathExtension.lowercased() == "json"
+        ? try Poses(contentsOf: url)
+        : try await Poses.detect(in: Clip(url: url), trim: trim)
     let analysis = analyze(poses, settings: settings)
-    try analysis.writeReports(to: folder, poses: poses, settings: settings)
-    print(analysis.summaryText(videoSeconds: Double(poses.video.nFrames) / poses.video.fps, source: poses.video.source,
-                               settings: settings), terminator: "")
-}
-
-/// The listed frames with the app's overlay (the app's default settings), rendered by SwiftUI.
-@MainActor func drawOverlay(of url: URL, poses: URL, frames indices: Set<Int>, to folder: URL, style: OverlayStyle,
-                 trim: Double?) async throws {
-    let analysis = analyze(try Poses(contentsOf: poses), settings: .app)
-    let frames = try await Clip(url: url).frames(height: 1080, trim: trim)
-    let context = CIContext()
-    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-    while let frame = try await frames.next() {
-        guard indices.contains(frame.index) else { continue }
-        let overlay = analysis.overlay(atSourceFrame: frame.index, tolerance: Settings.app.backToleranceDegrees)
-        guard let image = frame.rendered(with: overlay, style: style, context: context),
-              let destination = CGImageDestinationCreateWithURL(
-                folder.appending(component: "\(url.deletingPathExtension().lastPathComponent)-\(frame.index)-\(style.rawValue).png") as CFURL,
-                "public.png" as CFString, 1, nil)
-        else { throw ClipError.unreadable(url, nil) }
-        CGImageDestinationAddImage(destination, image, nil)
-        CGImageDestinationFinalize(destination)
+    let (full, straight, graded) = analysis.tally
+    print("\(poses.video.source): \(analysis.count) reps on the \(analysis.side.rawValue) side, "
+          + "\(full)/\(graded) full range, \(straight)/\(graded) straight back")
+    for rep in analysis.reps {
+        let row = rep.row(metric: settings.metric)
+        var line = "rep \(row.id)  at \(fixed(row.startSeconds, 2)) s  down \(fixed(row.downSeconds, 2)) s  "
+            + "pause \(fixed(row.pauseSeconds, 2)) s  push-up \(fixed(row.pushUpSeconds, 2)) s"
+        if let grade = rep.grade {
+            line += "  \(grade.reason) (bottom \(fixed(grade.bottomHeight, 2)), top \(fixed(grade.topHeight, 2))"
+                + " of \(fixed(grade.topRequired, 2))), \(grade.backLabel) (\(fixed(grade.backWorst, 1))°)"
+        }
+        print(line)
     }
-}
-
-/// The app's panel at the listed frames, rendered by SwiftUI.
-@MainActor func drawPanel(poses url: URL, frames: [Int], to folder: URL, size: (Int, Int)) throws {
-    let poses = try Poses(contentsOf: url)
-    let analysis = analyze(poses, settings: .app)
-    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-    let stem = (poses.video.source as NSString).deletingPathExtension
-    for frame in frames {
-        let view = PanelView(analysis: analysis, settings: .app, fps: poses.video.fps, frames: poses.video.nFrames,
-                             playhead: frame)
-        guard let image = view.rendered(width: size.0, height: size.1),
-              let destination = CGImageDestinationCreateWithURL(folder.appending(component: "\(stem)-panel-\(frame).png") as CFURL,
-                                                                "public.png" as CFString, 1, nil)
-        else { throw ClipError.unreadable(url, nil) }
-        CGImageDestinationAddImage(destination, image, nil)
-        CGImageDestinationFinalize(destination)
-    }
-}
-
-/// The annotated video and the reports, with the time it took and the video's size printed.
-@MainActor func exportClip(_ url: URL, poses posesURL: URL?, to folder: URL, settings: Settings, style: OverlayStyle,
-                           trim: Double?) async throws {
-    let clip = try await Clip(url: url)
-    let poses: Poses
-    if let posesURL {
-        poses = try Poses(contentsOf: posesURL)
-    } else {
-        poses = try await Poses.detect(in: clip, trim: trim)
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        try poses.write(to: folder.appending(component: "poses.json"))
-    }
-    let start = ContinuousClock.now
-    let video = try await analyze(poses, settings: settings).export(clip, poses: poses, settings: settings, style: style,
-                                                                     to: folder, trim: trim)
-    print("\(video.path): \(poses.video.nFrames) frames in \(fixed((ContinuousClock.now - start) / .seconds(1), 1)) s")
 }

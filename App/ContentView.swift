@@ -10,15 +10,6 @@ struct ContentView: View {
         NavigationSplitView {
             Sidebar()
                 .navigationSplitViewColumnWidth(min: 250, ideal: 290)
-                // On the sidebar, since a view takes one file importer: the window's opens clips.
-                .fileImporter(isPresented: $model.isChoosingExportFolder, allowedContentTypes: [.folder]) { result in
-                    switch result {
-                    case .success(let folder): model.export(to: folder)
-                    case .failure(let error): model.importFailed(error)
-                    }
-                }
-                .fileDialogConfirmationLabel("Export")
-                .fileDialogMessage("Choose where to save the annotated video and the reports.")
         } detail: {
             if let player = model.player {
                 VStack(spacing: 0) {
@@ -47,15 +38,7 @@ struct ContentView: View {
                         .controlSize(.small)
                         .help("Finding the body in every frame")
                 }
-                if let exportProgress = model.exportProgress {
-                    ProgressView(value: exportProgress)
-                        .progressViewStyle(.circular)
-                        .controlSize(.small)
-                        .help("Writing the annotated video")
-                }
                 Button("Open…", systemImage: "folder") { model.isImporting = true }
-                Button("Export…", systemImage: "square.and.arrow.up") { model.isChoosingExportFolder = true }
-                    .disabled(!model.canExport)
             }
         }
         .dropDestination(for: URL.self) { urls, _ in
@@ -126,8 +109,8 @@ struct Sidebar: View {
                     Text("Right").tag(Side?.some(.right))
                 }
                 .help("The side of the body to measure. Automatic picks the one the camera sees best.")
-                Button("Restore Defaults") { model.settings = .app }
-                    .disabled(model.settings == .app)
+                Button("Restore Defaults") { model.settings = Settings() }
+                    .disabled(model.settings == Settings())
             } header: {
                 Text("Settings")
             } footer: {
@@ -213,8 +196,8 @@ struct PlayerOverlay: View {
     }
 }
 
-/// The panel under the clip, on the model's playhead, as the overlay is. As wide as the window, and
-/// as high as the export's panel is for its width (1080 × 472).
+/// The panel under the clip, on the model's playhead, as the overlay is. As wide as the window, at
+/// 1080 × 472.
 struct PlayerPanel: View {
     @Environment(ClipModel.self) private var model
     let analysis: RepAnalysis
