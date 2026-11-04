@@ -13,36 +13,28 @@ public enum OverlayStyle: String, Codable, Sendable, CaseIterable {
 
 /// What the overlay draws on one frame.
 public struct OverlayFrame: Sendable, Equatable {
-    /// The 17 COCO keypoints, normalized to the frame with y down; nil where unseen.
-    public var keypoints: [CGPoint?]
+    /// The athlete's joints, normalized to the frame with y down.
+    public var joints: [JointName: CGPoint]
     public var side: Side
     /// The body line within tolerance on this frame (or unseen): green, else red.
     public var straight: Bool
 }
 
 extension RepAnalysis {
-    /// The source frame shown `time` seconds into the clip: frame index / fps, as the analysis
-    /// times frames, clamped to the clip.
-    public func sourceFrame(at time: Double, fps: Double) -> Int {
-        let last = indices.last ?? 0
-        return min(last, max(0, Int((time * fps).rounded(.down))))
+    /// The frame on screen `time` seconds into the clip: the last one shown by then, or the first.
+    public func frame(at time: Double) -> Int {
+        times.lastIndex { $0 <= time } ?? 0
     }
 
-    /// The overlay on source frame `frame`: its athlete, or the last one seen within 2 frames (the
-    /// demo's hold), and whether the body line is within `tolerance` degrees there.
-    public func overlay(atSourceFrame frame: Int, tolerance: Double) -> OverlayFrame? {
-        var athlete: Poses.Person?
-        for held in stride(from: frame, through: max(0, frame - 2), by: -1) {
-            if let i = indices.firstIndex(of: held), let person = athletes[i] {
-                athlete = person
-                break
-            }
-        }
-        guard let athlete else { return nil }
-        let reading = indices.firstIndex(of: frame).map { line[$0] } ?? .nan
-        return OverlayFrame(
-            keypoints: athlete.keypoints.map { $0 == [0, 0] ? nil : CGPoint(x: $0[0], y: $0[1]) },
-            side: side, straight: !(reading.isFinite && abs(reading) > tolerance))
+    /// The overlay on frame `frame`: its athlete, or the last one seen within 2 frames, and whether the
+    /// body line is within `tolerance` degrees there.
+    public func overlay(atFrame frame: Int, tolerance: Double) -> OverlayFrame? {
+        guard poses.indices.contains(frame),
+              let held = stride(from: frame, through: max(0, frame - 2), by: -1).first(where: { !poses[$0].joints.isEmpty })
+        else { return nil }
+        let reading = line[frame]
+        return OverlayFrame(joints: poses[held].joints.mapValues(\.location), side: side,
+                            straight: !(reading.isFinite && abs(reading) > tolerance))
     }
 }
 
@@ -68,10 +60,13 @@ public struct OverlayView: View {
         "torso": Color(red: 0xcb / 255, green: 0xd5 / 255, blue: 0xe1 / 255),
     ]
     /// The skeleton without the face, and the part each edge belongs to (the demo's `edge_part`).
-    nonisolated static let edges: [(Int, Int, String)] = [
-        (15, 13, "left_leg"), (13, 11, "left_leg"), (16, 14, "right_leg"), (14, 12, "right_leg"),
-        (11, 12, "torso"), (5, 11, "torso"), (6, 12, "torso"), (5, 6, "torso"),
-        (5, 7, "left_arm"), (7, 9, "left_arm"), (6, 8, "right_arm"), (8, 10, "right_arm"),
+    nonisolated static let edges: [(JointName, JointName, String)] = [
+        (.leftAnkle, .leftKnee, "left_leg"), (.leftKnee, .leftHip, "left_leg"),
+        (.rightAnkle, .rightKnee, "right_leg"), (.rightKnee, .rightHip, "right_leg"),
+        (.leftHip, .rightHip, "torso"), (.leftShoulder, .leftHip, "torso"), (.rightShoulder, .rightHip, "torso"),
+        (.leftShoulder, .rightShoulder, "torso"),
+        (.leftShoulder, .leftElbow, "left_arm"), (.leftElbow, .leftWrist, "left_arm"),
+        (.rightShoulder, .rightElbow, "right_arm"), (.rightElbow, .rightWrist, "right_arm"),
     ]
     nonisolated static let ring = Color(red: 20 / 255, green: 22 / 255, blue: 26 / 255)
 
@@ -80,8 +75,7 @@ public struct OverlayView: View {
             let scale = size.width / 720
             let thickness = max(1, (3 * scale).rounded())
             let radius = max(1, (4 * scale).rounded())
-            let near = frame.side == .left ? 5 : 6
-            let point = { (i: Int) in frame.keypoints[i].map { CGPoint(x: $0.x * size.width, y: $0.y * size.height) } }
+            let point = { (name: JointName) in frame.joints[name].map { CGPoint(x: $0.x * size.width, y: $0.y * size.height) } }
             func line(_ a: CGPoint, _ b: CGPoint, _ color: Color, _ width: CGFloat) {
                 context.stroke(Path { $0.move(to: a); $0.addLine(to: b) }, with: .color(color),
                                style: StrokeStyle(lineWidth: width, lineCap: .round))
@@ -96,13 +90,14 @@ public struct OverlayView: View {
                 for (a, b, part) in Self.edges {
                     if let p = point(a), let q = point(b) { line(p, q, Self.parts[part]!, thickness) }
                 }
-                for i in 5..<17 { if let p = point(i) { joint(p, ring: 1) } }
+                for name in Side.left.joints + Side.right.joints { if let p = point(name) { joint(p, ring: 1) } }
             }
             // The body line, over a dashed straight shoulder-to-ankle reference: the gap between the
             // two is how far the hips are off straight. A dark edge under the white dashes, so they
             // read on a light wall as on a dark floor.
             let body = max(2, thickness)
-            if let s = point(near), let hip = point(near + 6), let a = point(near + 10) {
+            let near = frame.side.joints   // shoulder, elbow, wrist, hip, knee, ankle
+            if let s = point(near[0]), let hip = point(near[3]), let a = point(near[5]) {
                 let dash = max(2, (body * 2 / 3).rounded(.down))
                 for k in stride(from: 0, to: 24, by: 2) {
                     let u = CGPoint(x: s.x + (a.x - s.x) * CGFloat(k) / 24, y: s.y + (a.y - s.y) * CGFloat(k) / 24)
@@ -115,10 +110,10 @@ public struct OverlayView: View {
             }
             if style == .near {
                 let arm = Self.parts[frame.side == .left ? "left_arm" : "right_arm"]!
-                for (u, v) in [(near, near + 2), (near + 2, near + 4)] {
+                for (u, v) in [(near[0], near[1]), (near[1], near[2])] {
                     if let p = point(u), let q = point(v) { line(p, q, arm, body) }
                 }
-                for i in [near, near + 2, near + 4, near + 6, near + 10] { if let p = point(i) { joint(p, ring: 1) } }
+                for name in [near[0], near[1], near[2], near[3], near[5]] { if let p = point(name) { joint(p, ring: 1) } }
             }
         }
     }

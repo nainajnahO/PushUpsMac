@@ -4,13 +4,12 @@ import PushUpsEngine
 var arguments = Array(CommandLine.arguments.dropFirst())
 switch arguments.first {
 case "poses":
-    // pushups-cli poses <clip> -o <poses.json> [--trim SECONDS] [--height PX]: Vision on every frame,
-    // as golden/<clip>/poses-vision.json holds them.
+    // pushups-cli poses <clip> -o <poses.json> [--trim SECONDS]: Vision on every frame, as
+    // golden/<clip>/poses-vision.json holds them.
     arguments.removeFirst()
     let trim = option("--trim").map { number($0) as Double }
-    let height = option("--height").map { number($0) as Int } ?? 1080
     guard let output = option("-o"), let path = arguments.first, arguments.count == 1 else { usage() }
-    try await writePoses(of: URL(filePath: path), to: URL(filePath: output), height: height, trim: trim)
+    try await writePoses(of: URL(filePath: path), to: URL(filePath: output), trim: trim)
 case "analyze":
     // pushups-cli analyze <clip | poses.json> [--trim S] [--down ARMS] [--up FRACTION]
     // [--back-tolerance DEG] [--metric moving|ascent] [--side auto|left|right]: prints the reps.
@@ -25,7 +24,7 @@ default:
 
 func usage() -> Never {
     print("""
-        Usage: pushups-cli poses <clip> -o <poses.json> [--trim SECONDS] [--height PX]
+        Usage: pushups-cli poses <clip> -o <poses.json> [--trim SECONDS]
                pushups-cli analyze <clip | poses.json> [--trim SECONDS] [--down ARMS] [--up FRACTION]
                                    [--back-tolerance DEG] [--metric moving|ascent] [--side auto|left|right]
         """)
@@ -69,18 +68,19 @@ func badValue<T>() -> T {
     return settings
 }
 
-/// Vision's poses on every frame of the clip, as a poses JSON.
-func writePoses(of url: URL, to output: URL, height: Int, trim: Double?) async throws {
-    let clip = try await Clip(url: url)
+/// Vision's poses on every frame of the clip, as a poses JSON, with how long Vision took.
+func writePoses(of url: URL, to output: URL, trim: Double?) async throws {
     let start = ContinuousClock.now
-    let poses = try await Poses.detect(in: clip, height: height, trim: trim)
+    let poses = try await Poses.detect(in: url, trim: trim)
+    let seconds = (ContinuousClock.now - start) / .seconds(1)
     try poses.write(to: output)
-    let seen = Set(poses.content.items.map(\.frameID)).count
+    let frames = poses.frames
+    let span = (frames.last?.time ?? 0) - (frames.first?.time ?? 0)
     print("""
-        \(output.lastPathComponent): \(poses.video.nFrames) frames at \(poses.video.width) × \(poses.video.height), \
-        \(fixed(poses.video.fps, 3)) fps; a person on \(seen); \
-        Vision \(fixed(poses.video.msPerFrame ?? 0, 1)) ms per frame, \
-        \(fixed((ContinuousClock.now - start) / .seconds(1), 1)) s in all
+        \(output.lastPathComponent): \(frames.count) frames shown at \(poses.width) × \(poses.height), \
+        \(fixed(frames.first?.time ?? 0, 3)) to \(fixed(frames.last?.time ?? 0, 3)) s \
+        (\(fixed(Double(frames.count - 1) / span, 2)) fps on average); a person on \(frames.count { !$0.joints.isEmpty }); \
+        \(fixed(seconds * 1000 / Double(frames.count), 1)) ms per frame, \(fixed(seconds, 1)) s in all
         """)
 }
 
@@ -88,10 +88,10 @@ func writePoses(of url: URL, to output: URL, height: Int, trim: Double?) async t
 func printAnalysis(of url: URL, settings: Settings, trim: Double?) async throws {
     let poses = url.pathExtension.lowercased() == "json"
         ? try Poses(contentsOf: url)
-        : try await Poses.detect(in: Clip(url: url), trim: trim)
+        : try await Poses.detect(in: url, trim: trim)
     let analysis = analyze(poses, settings: settings)
     let (full, straight, graded) = analysis.tally
-    print("\(poses.video.source): \(analysis.count) reps on the \(analysis.side.rawValue) side, "
+    print("\(poses.source): \(analysis.count) reps on the \(analysis.side.rawValue) side, "
           + "\(full)/\(graded) full range, \(straight)/\(graded) straight back")
     for rep in analysis.reps {
         let row = rep.row(metric: settings.metric)

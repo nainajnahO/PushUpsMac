@@ -20,19 +20,11 @@ public struct PanelState: Sendable, Equatable {
 }
 
 extension RepAnalysis {
-    public func panelState(atSourceFrame frame: Int, metric: Metric) -> PanelState {
+    public func panelState(atFrame frame: Int, metric: Metric) -> PanelState {
         let done = done(at: frame)
         let graded = done.compactMap(\.grade)
         return PanelState(frame: frame, done: done, averageSeconds: RepSummary(done, metric: metric)?.meanSeconds,
                           full: graded.count { $0.complete }, straight: graded.count { $0.backOK }, graded: graded.count)
-    }
-
-    /// The demo's `on_source_frames`: a series by returned frame, spread onto `count` source frames,
-    /// NaN on the frames without a person.
-    func onSourceFrames(_ series: [Double], count: Int) -> [Double] {
-        var out = [Double](repeating: .nan, count: count)
-        for (i, frame) in indices.enumerated() where frame < count { out[frame] = series[i] }
-        return out
     }
 }
 
@@ -69,25 +61,29 @@ func displaySmooth(_ values: [Double], fps: Double, seconds: Double, bridgeSecon
     return zip(keep, filled).map { $0 ? $1 : .nan }
 }
 
-/// The panel with the playhead on source frame `playhead`, for the analysis with `settings`, sized by
-/// its container: text and marks scale with the width, as the demo's do.
+/// The panel with the playhead on frame `playhead`, for the analysis with `settings`, sized by its
+/// container: text and marks scale with the width, as the demo's do.
 public struct PanelView: View {
     let analysis: RepAnalysis
     let settings: Settings
-    let fps: Double
     let duration: Double
     let playhead: Int
-    /// The shoulder's height and the body line on every source frame, smoothed for display.
+    /// The shoulder's height and the body line on every frame, smoothed for display.
     let height: [Double]
     let line: [Double]
 
-    /// `frames` is the clip's source frame count, `fps` what its frames are timed by.
-    public init(analysis: RepAnalysis, settings: Settings, fps: Double, frames: Int, playhead: Int) {
-        (self.analysis, self.settings, self.fps, self.playhead) = (analysis, settings, fps, playhead)
-        duration = Double(frames) / fps
-        height = displaySmooth(analysis.onSourceFrames(analysis.raw, count: frames), fps: fps, seconds: panelSmoothSeconds)
-        line = displaySmooth(analysis.onSourceFrames(analysis.line, count: frames), fps: fps, seconds: panelSmoothSeconds)
+    public init(analysis: RepAnalysis, settings: Settings, playhead: Int) {
+        (self.analysis, self.settings, self.playhead) = (analysis, settings, playhead)
+        let times = analysis.times
+        duration = times.last ?? 0
+        // The smoothing is in frames, so it takes the clip's mean frame rate.
+        let fps = times.count > 1 ? Double(times.count - 1) / (times[times.count - 1] - times[0]) : 30
+        height = displaySmooth(analysis.raw, fps: fps, seconds: panelSmoothSeconds)
+        line = displaySmooth(analysis.line, fps: fps, seconds: panelSmoothSeconds)
     }
+
+    /// When frame `frame` is shown, seconds.
+    private func time(_ frame: Int) -> Double { analysis.times[min(frame, analysis.times.count - 1)] }
 
     // The demo's palette, shared with the other vision-demos panels.
     nonisolated static let background = Color(red: 0x14 / 255, green: 0x16 / 255, blue: 0x1a / 255)
@@ -100,7 +96,7 @@ public struct PanelView: View {
         GeometryReader { geometry in
             let (w, h) = (geometry.size.width, geometry.size.height)
             let s = w / 1280, m = 28 * s
-            let state = analysis.panelState(atSourceFrame: playhead, metric: settings.metric)
+            let state = analysis.panelState(atFrame: playhead, metric: settings.metric)
             // The demo's split: the two columns' plot areas come out the same width.
             let (leftPad, rightPad, gap) = (112 * s, 62 * s, 16 * s)
             let split = (w + leftPad + gap - rightPad - m) / 2
@@ -152,11 +148,11 @@ public struct PanelView: View {
         .frame(width: w, height: h * 0.17 + max(1, s), alignment: .topLeading)
     }
 
-    /// The source frames up to the playhead, as (time, value, run): a run breaks where the value is NaN.
+    /// The frames up to the playhead, as (time, value, run): a run breaks where the value is NaN.
     private func shown(_ series: [Double]) -> [(time: Double, value: Double, run: Int)] {
         var run = 0, out: [(Double, Double, Int)] = []
         for frame in 0...min(playhead, series.count - 1) {
-            if series[frame].isFinite { out.append((Double(frame) / fps, series[frame], run)) } else { run += 1 }
+            if series[frame].isFinite { out.append((time(frame), series[frame], run)) } else { run += 1 }
         }
         return out
     }
@@ -192,7 +188,7 @@ public struct PanelView: View {
         let last = height.count - 1
         let dots = analysis.reps.flatMap { rep in
             [(rep.pushFrame, rep.grade?.bottomOK ?? true), (rep.lockoutFrame, rep.grade?.topOK ?? true)]
-        }.filter { $0.0 <= playhead }.map { f, ok in (Double(f) / fps, height[min(f, last)], ok ? OverlayView.good : OverlayView.bad) }
+        }.filter { $0.0 <= playhead }.map { f, ok in (time(f), height[min(f, last)], ok ? OverlayView.good : OverlayView.bad) }
         let now = min(playhead, last)
         return Chart {
             ForEach([up, down], id: \.self) { y in
@@ -203,9 +199,9 @@ public struct PanelView: View {
                 LineMark(x: .value("Time", point.time), y: .value("Height", point.value), series: .value("Run", point.run))
                     .foregroundStyle(Self.accent).lineStyle(StrokeStyle(lineWidth: thick(s)))
             }
-            RuleMark(x: .value("Now", Double(playhead) / fps)).foregroundStyle(Self.muted)
+            RuleMark(x: .value("Now", time(playhead))).foregroundStyle(Self.muted)
                 .lineStyle(StrokeStyle(lineWidth: max(1, (1.2 * s).rounded(.down))))
-            ForEach(Array((dots + [(Double(now) / fps, height[now], Self.accent)]).enumerated()), id: \.offset) { i, dot in
+            ForEach(Array((dots + [(time(now), height[now], Self.accent)]).enumerated()), id: \.offset) { i, dot in
                 if dot.1.isFinite {
                     let r: CGFloat = i == dots.count ? 6 : 5
                     PointMark(x: .value("Time", dot.0), y: .value("Height", dot.1))
@@ -258,12 +254,12 @@ public struct PanelView: View {
                 LineMark(x: .value("Time", point.time), y: .value("Degrees", clip(point.value)), series: .value("Run", "bent \(point.run)"))
                     .foregroundStyle(OverlayView.bad).lineStyle(StrokeStyle(lineWidth: thick(s)))
             }
-            RuleMark(x: .value("Now", Double(playhead) / fps)).foregroundStyle(Self.muted)
+            RuleMark(x: .value("Now", time(playhead))).foregroundStyle(Self.muted)
                 .lineStyle(StrokeStyle(lineWidth: max(1, (1.2 * s).rounded(.down))))
             if line[now].isFinite {
-                PointMark(x: .value("Time", Double(now) / fps), y: .value("Degrees", clip(line[now])))
+                PointMark(x: .value("Time", time(now)), y: .value("Degrees", clip(line[now])))
                     .foregroundStyle(Self.background).symbolSize(pow(13 * s, 2))
-                PointMark(x: .value("Time", Double(now) / fps), y: .value("Degrees", clip(line[now])))
+                PointMark(x: .value("Time", time(now)), y: .value("Degrees", clip(line[now])))
                     .foregroundStyle(abs(line[now]) > tolerance ? OverlayView.bad : Self.foreground).symbolSize(pow(10 * s, 2))
             }
         }

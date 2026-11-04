@@ -15,12 +15,12 @@ struct ContentView: View {
                 VStack(spacing: 0) {
                     PlayerView(player: player) {
                         if let analysis = model.analysis, let poses = model.poses {
-                            PlayerOverlay(analysis: analysis, video: poses.video)
+                            PlayerOverlay(analysis: analysis, size: CGSize(width: poses.width, height: poses.height))
                                 .environment(model)
                         }
                     }
-                    if let analysis = model.analysis, let poses = model.poses {
-                        PlayerPanel(analysis: analysis, video: poses.video)
+                    if let analysis = model.analysis {
+                        PlayerPanel(analysis: analysis)
                     }
                 }
             } else {
@@ -180,13 +180,13 @@ private func seconds(_ value: Double) -> String {
 struct PlayerOverlay: View {
     @Environment(ClipModel.self) private var model
     let analysis: RepAnalysis
-    let video: Poses.Video
+    /// The frame's size as shown.
+    let size: CGSize
 
     var body: some View {
         GeometryReader { geometry in
-            let rect = AVMakeRect(aspectRatio: CGSize(width: video.width, height: video.height),
-                                  insideRect: CGRect(origin: .zero, size: geometry.size))
-            if let overlay = analysis.overlay(atSourceFrame: model.playhead, tolerance: model.settings.backToleranceDegrees) {
+            let rect = AVMakeRect(aspectRatio: size, insideRect: CGRect(origin: .zero, size: geometry.size))
+            if let overlay = analysis.overlay(atFrame: model.playhead, tolerance: model.settings.backToleranceDegrees) {
                 OverlayView(frame: overlay, style: model.overlayStyle)
                     .frame(width: rect.width, height: rect.height)
                     .position(x: rect.midX, y: rect.midY)
@@ -201,11 +201,9 @@ struct PlayerOverlay: View {
 struct PlayerPanel: View {
     @Environment(ClipModel.self) private var model
     let analysis: RepAnalysis
-    let video: Poses.Video
 
     var body: some View {
-        PanelView(analysis: analysis, settings: model.settings, fps: video.fps, frames: video.nFrames,
-                  playhead: model.playhead)
+        PanelView(analysis: analysis, settings: model.settings, playhead: model.playhead)
             .aspectRatio(1080 / 472, contentMode: .fit)
     }
 }

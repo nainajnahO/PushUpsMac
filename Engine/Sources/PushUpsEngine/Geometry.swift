@@ -9,42 +9,28 @@ public enum Side: String, Codable, Sendable, CaseIterable {
     case left, right
 }
 
-/// The demo's six joints a side, in COCO-17 order of the left side (the right is one after each).
-private let sideJoints = ["shoulder", "elbow", "wrist", "hip", "knee", "ankle"]
-
-/// The persons on each returned frame, as the demo's `pose.unwrap` groups them, then its `dedupe`:
-/// every frame the reply lists, and any a person names, in order.
-extension Poses {
-    public func unwrapped(maxPersons: Int = 1, iou: Double = 0.6) -> (indices: [Int], persons: [[Person]]) {
-        var byIndex: [Int: [Person]] = [:]
-        for frame in content.frames { byIndex[frame.frameID] = [] }
-        for person in content.items { byIndex[person.frameID, default: []].append(person) }
-        let indices = byIndex.keys.sorted()
-        return (indices, dedupe(indices.map { byIndex[$0]! }, maxPersons: maxPersons, iou: iou))
+extension Side {
+    /// The six joints the analysis reads on this side: shoulder, elbow, wrist, hip, knee, ankle.
+    var joints: [JointName] {
+        switch self {
+        case .left: [.leftShoulder, .leftElbow, .leftWrist, .leftHip, .leftKnee, .leftAnkle]
+        case .right: [.rightShoulder, .rightElbow, .rightWrist, .rightHip, .rightKnee, .rightAnkle]
+        }
     }
 }
 
-/// The side whose arm and leg score higher over the clip, summed over every frame's first person;
-/// a tie is the left, as Python's `max` over `{"left", "right"}` takes the first.
-func pickSide(_ frames: [[Poses.Person]], forced: Side? = nil) -> Side {
+/// The side whose arm and leg Vision is surer of over the clip, its confidences summed over every frame;
+/// a tie is the left.
+func pickSide(_ frames: [Pose], forced: Side? = nil) -> Side {
     if let forced { return forced }
-    var left = 0.0, right = 0.0
-    for person in frames.compactMap(\.first) {
-        for joint in 0..<sideJoints.count {
-            let i = 5 + 2 * joint
-            if i < person.scores.count { left += person.scores[i] }
-        }
-        for joint in 0..<sideJoints.count {
-            let i = 6 + 2 * joint
-            if i < person.scores.count { right += person.scores[i] }
-        }
+    func total(_ side: Side) -> Double {
+        frames.reduce(0) { sum, pose in side.joints.reduce(sum) { $0 + Double(pose.joints[$1]?.confidence ?? 0) } }
     }
-    return right > left ? .right : .left
+    return total(.right) > total(.left) ? .right : .left
 }
 
-/// One side's joints per returned frame, in frame heights: x is scaled by the aspect ratio, so
-/// angles and lengths are true shapes. NaN where the model returned the `(0, 0)` "not visible"
-/// sentinel, or no person.
+/// One side's joints per frame, in frame heights: x is scaled by the aspect ratio, so angles and lengths
+/// are true shapes. NaN where Vision didn't see the joint, or anybody.
 struct Joints {
     var shoulder: [SIMD2<Double>]
     var elbow: [SIMD2<Double>]
@@ -53,15 +39,10 @@ struct Joints {
     var knee: [SIMD2<Double>]
     var ankle: [SIMD2<Double>]
 
-    init(_ frames: [[Poses.Person]], side: Side, aspect: Double) {
-        let unseen = SIMD2<Double>(.nan, .nan)
-        let columns = (0..<sideJoints.count).map { joint in
-            let i = 5 + 2 * joint + (side == .right ? 1 : 0)
-            return frames.map { persons -> SIMD2<Double> in
-                guard let keypoints = persons.first?.keypoints, i < keypoints.count, keypoints[i] != [0, 0] else {
-                    return unseen
-                }
-                return SIMD2(keypoints[i][0] * aspect, keypoints[i][1])
+    init(_ frames: [Pose], side: Side, aspect: Double) {
+        let columns = side.joints.map { name in
+            frames.map { pose in
+                pose.joints[name].map { SIMD2($0.location.x * aspect, $0.location.y) } ?? SIMD2(.nan, .nan)
             }
         }
         (shoulder, elbow, wrist, hip, knee, ankle) = (columns[0], columns[1], columns[2], columns[3], columns[4], columns[5])
