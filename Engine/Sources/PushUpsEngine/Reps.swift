@@ -7,8 +7,6 @@ import Foundation
 
 /// The settings the counter reads, in the sidebar.
 public struct Settings: Sendable, Codable, Equatable {
-    /// Which side to measure; nil picks the one Vision is surer of, up to the plank.
-    public var side: Side?
     /// Which span the push-up time reports.
     public var metric = Metric.moving
     /// Down: the shoulder at most this many arm lengths above the wrist at the deepest point. Your planks
@@ -71,6 +69,8 @@ public struct Rep: Sendable, Equatable {
 public struct Plank: Sendable, Equatable {
     /// The frame the hold was found on.
     public var frame: Int
+    /// The side measured from here on: the one Vision was surer of up to the hold.
+    var side: Side
     /// The near arm, upper arm plus forearm, straight: frame heights. Every height is in these.
     public var arm: Double
     /// The shoulder's height above the wrist in the plank, arm lengths: about 1.
@@ -87,9 +87,7 @@ public struct RepCounter: Sendable {
     /// Every frame so far, and when each is shown.
     public private(set) var poses: [Pose] = []
     public private(set) var times: [Double] = []
-    /// Fixed once the plank is found.
-    public private(set) var side: Side?
-    /// Which side Vision is surer of so far: the side picked at the plank, and drawn before it.
+    /// Which side Vision is surer of so far: the side the plank takes, and drawn before it.
     private(set) var confidence = SideConfidence()
     public private(set) var plank: Plank?
     /// The shoulder's height above the wrist, arm lengths, per frame: NaN until the plank is found (then
@@ -187,7 +185,7 @@ public struct RepCounter: Sendable {
     /// steady, for `plankSeconds`. Once found, the side and the arm are fixed, and the frames so far measured.
     private mutating func findPlank() {
         let newest = poses.count - 1
-        let side = settings.side ?? confidence.surer
+        let side = confidence.surer
         // From the latest frame at least `plankSeconds` before this one.
         guard let first = poses.lastIndex(where: { poses[newest].time - $0.time >= Self.plankSeconds }) else { return }
         let joints = poses[first...newest].map { NearSide($0, side: side, aspect: aspect) }
@@ -195,8 +193,7 @@ public struct RepCounter: Sendable {
         let arm = median(joints.map(\.arm))
         let heights = joints.map { $0.shoulderHeight / arm }
         guard let low = heights.min(), let high = heights.max(), high - low <= Self.plankSteadiness else { return }
-        self.side = side
-        plank = Plank(frame: newest, arm: arm, level: median(heights))
+        plank = Plank(frame: newest, side: side, arm: arm, level: median(heights))
         // Everything so far, measured now; the counting starts at the plank.
         for i in poses.indices { measure(i) }
         (start, next) = (newest, newest)
@@ -204,8 +201,8 @@ public struct RepCounter: Sendable {
 
     /// The shoulder's height and the body line on frame `i`, once the plank is known.
     private mutating func measure(_ i: Int) {
-        guard let plank, let side else { return }
-        let joints = NearSide(poses[i], side: side, aspect: aspect)
+        guard let plank else { return }
+        let joints = NearSide(poses[i], side: plank.side, aspect: aspect)
         let (height, bend) = (joints.shoulderHeight / plank.arm, joints.bodyLine)
         if i < raw.count {
             (raw[i], line[i]) = (height, bend)

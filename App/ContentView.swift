@@ -193,12 +193,6 @@ struct Sidebar: View {
                     Text("Whole way up").tag(Metric.ascent)
                 }
                 .help("Moving: from leaving the bottom to lockout, leaving out a pause on the floor. Whole way up: from the deepest point, the pause included.")
-                Picker("Side", selection: $model.settings.side) {
-                    Text("Automatic").tag(Side?.none)
-                    Text("Left").tag(Side?.some(.left))
-                    Text("Right").tag(Side?.some(.right))
-                }
-                .help("The side of the body to measure. Automatic picks the one the camera sees best.")
                 Button("Restore Defaults") { model.settings = Settings() }
                     .disabled(model.settings == Settings())
             } header: {
@@ -227,9 +221,6 @@ struct ResultSections: View {
             let (full, straight, graded) = analysis.tally
             LabeledContent("Full range", value: "\(full) of \(graded)")
             LabeledContent("Straight back", value: "\(straight) of \(graded)")
-            if let side = analysis.side {
-                LabeledContent("Measured on", value: "the \(side.rawValue) side")
-            }
         }
         if !analysis.reps.isEmpty {
             Section("Reps") {

@@ -13,7 +13,7 @@ case "poses":
     try await writePoses(of: URL(filePath: path), to: URL(filePath: output), trim: trim)
 case "analyze":
     // pushups-cli analyze <clip | poses.json> [--trim S] [--down ARMS] [--up FRACTION]
-    // [--back-tolerance DEG] [--metric moving|ascent] [--side auto|left|right]: prints the reps.
+    // [--back-tolerance DEG] [--metric moving|ascent]: prints the reps.
     arguments.removeFirst()
     let settings = settingOptions()
     let trim = option("--trim").map { number($0) as Double }
@@ -49,10 +49,10 @@ func usage() -> Never {
     print("""
         Usage: pushups-cli poses <clip> -o <poses.json> [--trim SECONDS]
                pushups-cli analyze <clip | poses.json> [--trim SECONDS] [--down ARMS] [--up FRACTION]
-                                   [--back-tolerance DEG] [--metric moving|ascent] [--side auto|left|right]
+                                   [--back-tolerance DEG] [--metric moving|ascent]
                pushups-cli live <clip> [--size WIDTHxHEIGHT] [--trim SECONDS] [--compare <poses.json>] [--speak]
                                 [--record <movie.mov>] [--loop TIMES]
-                                [--down ARMS] [--up FRACTION] [--back-tolerance DEG] [--side auto|left|right]
+                                [--down ARMS] [--up FRACTION] [--back-tolerance DEG]
                pushups-cli speed <poses.json> [--minutes MINUTES]
         """)
     exit(1)
@@ -98,7 +98,6 @@ func badValue<T>() -> T {
     option("--up").map { settings.romUpFraction = number($0) }
     option("--back-tolerance").map { settings.backToleranceDegrees = number($0) }
     option("--metric").map { settings.metric = Metric(rawValue: $0) ?? badValue() }
-    option("--side").map { settings.side = $0 == "auto" ? nil : Side(rawValue: $0) ?? badValue() }
     return settings
 }
 
@@ -125,11 +124,11 @@ func printAnalysis(of url: URL, settings: Settings, trim: Double?) async throws 
         : try await Poses.detect(in: url, trim: trim)
     let counter = RepCounter(poses: poses, settings: settings)
     let (full, straight, graded) = counter.tally
-    guard let plank = counter.plank, let side = counter.side else {
+    guard let plank = counter.plank else {
         print("\(poses.source): no plank found")
         return
     }
-    print("\(poses.source): \(counter.count) reps on the \(side.rawValue) side, \(full)/\(graded) full range, "
+    print("\(poses.source): \(counter.count) reps, \(full)/\(graded) full range, "
           + "\(straight)/\(graded) straight back; plank at \(fixed(counter.times[plank.frame], 2)) s (frame \(plank.frame)), "
           + "arm \(fixed(plank.arm, 3)) frame heights, level \(fixed(plank.level, 2))")
     for rep in counter.reps {
