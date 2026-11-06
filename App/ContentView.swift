@@ -278,7 +278,7 @@ struct GradeLabel: View {
     }
 }
 
-/// A setting's slider, its name and value above it.
+/// A setting's slider, its name and value above it. The trackpad taps as the slider reaches each step.
 struct SettingSlider: View {
     let title: String
     @Binding var value: Double
@@ -296,6 +296,7 @@ struct SettingSlider: View {
             }
             Slider(value: $value, in: range, step: step)
                 .labelsHidden()
+                .sensoryFeedback(.alignment, trigger: value)
         }
         .help(help)
     }
