@@ -22,7 +22,7 @@ public enum Bend: Sendable, Equatable {
 public struct OverlayFrame: Sendable, Equatable {
     /// The athlete's joints, normalized to the frame with y down.
     public var joints: [JointName: CGPoint]
-    public var side: Side
+    var side: Side
     /// Nil while the body line is within tolerance on this frame (or unseen).
     public var bend: Bend?
 }
@@ -41,7 +41,7 @@ extension RepCounter {
         else { return nil }
         let reading = line[frame]
         let bend: Bend? = reading.isFinite && abs(reading) > tolerance ? (reading < 0 ? .hipsLow : .hipsHigh) : nil
-        return OverlayFrame(joints: poses[held].joints.mapValues(\.location), side: side ?? confidence.surer,
+        return OverlayFrame(joints: poses[held].joints.mapValues(\.location), side: plank?.side ?? confidence.surer,
                             bend: bend)
     }
 }

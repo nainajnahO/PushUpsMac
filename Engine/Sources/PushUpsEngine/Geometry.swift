@@ -5,7 +5,7 @@ import Foundation
 // hide behind the body and Vision guesses them, so everything is read off one side.
 
 /// Which side of the body the analysis reads.
-public enum Side: String, Codable, Sendable, CaseIterable {
+enum Side: Sendable {
     case left, right
 
     /// The six joints the analysis reads on this side: shoulder, elbow, wrist, hip, knee, ankle.
