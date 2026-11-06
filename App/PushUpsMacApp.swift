@@ -1,4 +1,5 @@
 import PushUpsEngine
+import SwiftData
 import SwiftUI
 
 @main
@@ -15,6 +16,7 @@ struct PushUpsMacApp: App {
                 .environment(live)
         }
         .defaultSize(width: 1100, height: 760)
+        .modelContainer(for: SavedSet.self)
         .commands {
             SidebarCommands()
             // Nothing here prints.

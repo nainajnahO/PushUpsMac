@@ -18,10 +18,7 @@ public struct Grade: Sendable, Equatable {
     /// Full range of motion: chest down to the floor and all the way back up.
     public var complete: Bool { bottomOK && topOK }
 
-    public var reason: String {
-        let short = [("not to the floor", bottomOK), ("not back up", topOK)].filter { !$0.1 }.map(\.0)
-        return short.isEmpty ? "full" : short.joined(separator: ", ")
-    }
+    public var reason: String { rangeReason(bottomOK: bottomOK, topOK: topOK) }
 
     public var backLabel: String {
         guard backWorst.isFinite else { return "unseen" }
@@ -75,6 +72,12 @@ public struct RepSummary: Sendable, Equatable {
         meanEccentricSeconds = mean(reps.map(\.eccentricSeconds))
         meanPauseSeconds = mean(reps.map(\.pauseSeconds))
     }
+}
+
+/// "full", or what fell short of it: "not to the floor", "not back up", or both.
+func rangeReason(bottomOK: Bool, topOK: Bool) -> String {
+    let short = [("not to the floor", bottomOK), ("not back up", topOK)].filter { !$0.1 }.map(\.0)
+    return short.isEmpty ? "full" : short.joined(separator: ", ")
 }
 
 /// The mean of a few values.
