@@ -108,8 +108,8 @@ final class LiveModel {
         guard let recorder else { return nil }
         self.recorder = nil
         do {
-            let (frames, poses, skipped) = try await recorder.finish()
-            log.notice("recorded \(frames) frames (\(skipped) skipped by the encoder) and \(poses) poses to \(recorder.url.lastPathComponent, privacy: .public)")
+            let (frames, poses, skipped, outOfOrder) = try await recorder.finish()
+            log.notice("recorded \(frames) frames (\(skipped) skipped by the encoder, \(outOfOrder) out of order) and \(poses) poses to \(recorder.url.lastPathComponent, privacy: .public)")
             return recorder.url
         } catch LiveRecorder.Failure.noFrames {
             // The camera never delivered a frame (no access, or no camera): nothing to record, and no file.

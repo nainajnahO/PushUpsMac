@@ -245,7 +245,7 @@ func printRoundTrip(_ recorder: LiveRecorder, run: LiveRun, counter live: RepCou
     let video = try await asset.loadTracks(withMediaType: .video).first
     let duration = try await video?.load(.timeRange).duration.seconds ?? 0
     let bytes = try recorder.url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-    print("  recorded \(recorder.url.lastPathComponent): \(written.frames) of \(run.received) frames (\(written.skipped) skipped by the encoder), "
+    print("  recorded \(recorder.url.lastPathComponent): \(written.frames) of \(run.received) frames (\(written.skipped) skipped by the encoder, \(written.outOfOrder) out of order), "
           + "\(written.poses) of \(run.frames.count) poses, \(fixed(duration, 2)) s, \(fixed(Double(bytes) / 1_000_000, 1)) MB")
     guard let poses = try await Poses.recorded(in: recorder.url) else {
         print("  reopened: no recorded poses")

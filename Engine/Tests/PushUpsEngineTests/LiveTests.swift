@@ -175,6 +175,34 @@ func liveSetCountsAsTheClip(name: String) throws {
     #expect(try await video.load(.timeRange).duration.seconds > 0.9)
 }
 
+/// Frames whose times repeat or step back, as the iPhone's do when it takes over (#77), are left out, and so is
+/// a pose that would step back with them; the rest of the set is still recorded.
+@Test func framesOutOfOrderAreLeftOut() async throws {
+    let url = FileManager.default.temporaryDirectory.appending(component: "out-of-order-\(UUID().uuidString).mov")
+    defer { try? FileManager.default.removeItem(at: url) }
+    let recorder = try LiveRecorder(url: url)
+    let even = (0..<30).map { 1000 + Double($0) / 30 }
+    // After the 10th frame, its time again (frame 10 here); after the 20th, the 16th's (frame 21).
+    let times = Array(even[0..<10]) + [even[9]] + Array(even[10..<20]) + [even[15]] + Array(even[20...])
+    for (i, time) in times.enumerated() {
+        try await Task.sleep(for: .seconds(1.0 / 30))
+        recorder.append(try blankFrame(at: time))
+        // Every other frame posed, and both frames out of order.
+        if i.isMultiple(of: 2) || i == 21 {
+            recorder.append(Pose(time: time - 1000, joints: [:]), at: CMTime(seconds: time, preferredTimescale: 600))
+        }
+    }
+    let counts = try await recorder.finish()
+    // Frame 10's pose is still after the last pose (frame 8's), so it's kept, at frame 9's time; frame 21's
+    // would step back from frame 20's, so it's left out.
+    #expect((counts.frames, counts.outOfOrder, counts.skipped, counts.poses) == (30, 2, 0, 16))
+    let read = try #require(try await Poses.recorded(in: url))
+    #expect(read.frames.count == counts.poses)
+    #expect(zip(read.frames, read.frames.dropFirst()).allSatisfy { $0.time < $1.time })
+    let video = try #require(try await AVURLAsset(url: url).loadTracks(withMediaType: .video).first)
+    #expect(try await video.load(.timeRange).duration.seconds > 0.95)
+}
+
 /// A clip filmed on the phone has no recorded poses: it's posed by Vision, as before.
 @Test func aClipHasNoRecordedPoses() async throws {
     #expect(try await Poses.recorded(in: testClip("clean-right")) == nil)
