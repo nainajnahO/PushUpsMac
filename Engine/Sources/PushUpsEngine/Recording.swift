@@ -32,7 +32,9 @@ public final class LiveRecorder: Sendable {
         let writer: AVAssetWriter
         var video: AVAssetWriterInput.SampleBufferReceiver?
         var poses: AVAssetWriterInput.MetadataReceiver?
-        var frames = 0, skipped = 0, posed = 0
+        var frames = 0, skipped = 0, outOfOrder = 0, posed = 0
+        /// The times of the last frame and the last pose written: the writer takes only later ones.
+        var lastFrame: CMTime?, lastPose: CMTime?
         var failure: String?
         var finished = false
     }
@@ -44,14 +46,22 @@ public final class LiveRecorder: Sendable {
         state = Mutex(State(writer: try AVAssetWriter(outputURL: url, fileType: .mov)))
     }
 
-    /// A camera frame, in order. One the encoder isn't ready for is skipped and counted.
+    /// A camera frame. One the encoder isn't ready for is skipped and counted. One timed no later than the last
+    /// frame written is left out and counted: a camera's times can repeat or step back, as the iPhone's do when
+    /// it takes over, and `AVAssetWriter` fails for good on a frame out of order (#77).
     public func append(_ frame: CMReadySampleBuffer<CVReadOnlyPixelBuffer>) {
         state.withLock { state in
             guard !state.finished, state.failure == nil else { return }
+            let time = frame.presentationTimeStamp
+            if let last = state.lastFrame, time <= last {
+                state.outOfOrder += 1
+                return
+            }
             do {
                 if state.video == nil { try Self.start(&state, with: frame) }
                 if try state.video?.appendImmediately(CMReadySampleBuffer(frame)) == true {
                     state.frames += 1
+                    state.lastFrame = time
                 } else {
                     state.skipped += 1
                 }
@@ -61,7 +71,8 @@ public final class LiveRecorder: Sendable {
         }
     }
 
-    /// A posed frame's pose, at the frame's presentation time.
+    /// A posed frame's pose, at the frame's presentation time. One timed no later than the last pose written
+    /// belongs to a frame out of order, and is left out, as the writer would fail on it as on the frame.
     public func append(_ pose: Pose, at time: CMTime) {
         let json: String
         do {
@@ -72,6 +83,7 @@ public final class LiveRecorder: Sendable {
         }
         state.withLock { state in
             guard !state.finished, state.failure == nil, let poses = state.poses else { return }
+            if let last = state.lastPose, time <= last { return }
             let item = AVMutableMetadataItem()
             item.identifier = AVMetadataIdentifier(rawValue: poseIdentifier)
             item.dataType = kCMMetadataBaseDataType_UTF8 as String
@@ -79,7 +91,10 @@ public final class LiveRecorder: Sendable {
             // No duration: each pose lasts until the next.
             let group = AVTimedMetadataGroup(items: [item], timeRange: CMTimeRange(start: time, duration: .invalid))
             do {
-                if try poses.appendImmediately(group) { state.posed += 1 }
+                if try poses.appendImmediately(group) {
+                    state.posed += 1
+                    state.lastPose = time
+                }
             } catch {
                 state.failure = error.localizedDescription
             }
@@ -87,8 +102,10 @@ public final class LiveRecorder: Sendable {
     }
 
     /// Ends the movie. Frames and poses that come after are ignored. Returns how many frames and poses were
-    /// written, and how many frames the encoder skipped.
-    public func finish() async throws -> (frames: Int, poses: Int, skipped: Int) {
+    /// written, how many frames the encoder skipped, and how many were left out for coming out of order.
+    ///
+    /// A movie the writer couldn't finish has no header, so nothing can open it: it's removed.
+    public func finish() async throws -> (frames: Int, poses: Int, skipped: Int, outOfOrder: Int) {
         let started = state.withLock { state in
             state.finished = true
             state.video?.finish()
@@ -99,13 +116,21 @@ public final class LiveRecorder: Sendable {
         await withCheckedContinuation { (finished: CheckedContinuation<Void, Never>) in
             state.withLock { $0.writer.finishWriting { finished.resume() } }
         }
-        return try state.withLock { state in
-            if let failure = state.failure { throw Failure.failed(failure) }
-            if state.writer.status != .completed {
-                throw Failure.failed(state.writer.error?.localizedDescription ?? "status \(state.writer.status.rawValue)")
-            }
-            return (state.frames, state.posed, state.skipped)
+        let (counts, failure, unfinished) = state.withLock { state in
+            let unfinished = state.writer.status != .completed
+            let failure = state.failure
+                ?? (unfinished ? state.writer.error?.localizedDescription ?? "status \(state.writer.status.rawValue)" : nil)
+            return ((state.frames, state.posed, state.skipped, state.outOfOrder), failure, unfinished)
         }
+        guard let failure else { return counts }
+        if unfinished {
+            do {
+                try FileManager.default.removeItem(at: url)
+            } catch {
+                throw Failure.failed("\(failure); the unfinished movie couldn't be removed: \(error.localizedDescription)")
+            }
+        }
+        throw Failure.failed(failure)
     }
 
     /// The movie's two tracks, the video's size taken from the first frame, and the session started at it.
