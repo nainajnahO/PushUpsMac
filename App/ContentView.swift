@@ -1,14 +1,88 @@
 import AVKit
 import PushUpsEngine
+import SwiftData
 import SwiftUI
 
 struct ContentView: View {
     @Environment(ClipModel.self) private var model
     @Environment(Camera.self) private var camera
     @Environment(LiveModel.self) private var live
+    @Environment(\.modelContext) private var history
+    @State private var page = Page.workout
+    /// Why recorded sets couldn't be added to the history.
+    @State private var historyProblems: [String] = []
+    /// Why the last set couldn't be kept in the history.
+    @State private var historyFailure: String?
+
+    /// The toolbar's switch: counting, or your sets over time.
+    private enum Page {
+        case workout, progress
+    }
 
     var body: some View {
         @Bindable var model = model
+        Group {
+            if page == .progress {
+                ProgressPage(metric: model.settings.metric, problems: historyProblems)
+            } else {
+                workout
+            }
+        }
+        .navigationTitle(page == .progress ? "Progress"
+                         : camera.isOn ? camera.currentName ?? "Camera" : model.url?.lastPathComponent ?? "PushUpsMac")
+        .navigationSubtitle(page == .progress ? ""
+                            : camera.isOn ? camera.subtitle(posedPerSecond: live.posedPerSecond) : model.status)
+        // A setting changed mid-set counts the set so far again with it, as on a clip.
+        .onChange(of: model.settings) { _, settings in live.recount(with: settings) }
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Picker("Page", selection: $page) {
+                    Text("Workout").tag(Page.workout)
+                    Text("Progress").tag(Page.progress)
+                }
+                .pickerStyle(.segmented)
+                // A set is going: it ends with the camera.
+                .disabled(camera.isOn)
+                .help("Count push-ups, or see your sets over time")
+            }
+            ToolbarItemGroup {
+                if page == .workout { workoutTools }
+            }
+        }
+        // The sets deleted before this launch go for good, and the sets recorded before the history was kept come
+        // in, the first time.
+        .task {
+            do {
+                try history.deleteRemovedSets()
+            } catch {
+                historyProblems.append("The deleted sets couldn't be cleared: \(error.localizedDescription)")
+            }
+            historyProblems += await history.addRecordedSets()
+        }
+        .alert("Couldn't Keep the Set", isPresented: Binding { historyFailure != nil } set: { if !$0 { historyFailure = nil } }) {
+        } message: {
+            Text(historyFailure ?? "")
+        }
+        .dropDestination(for: URL.self) { urls, _ in
+            // Only a movie: anything else would close the open clip for a file the app can't read.
+            guard let url = urls.first,
+                  (try? url.resourceValues(forKeys: [.contentTypeKey]))?.contentType?.conforms(to: .movie) == true
+            else { return false }
+            open(url, securityScoped: true)
+            return true
+        }
+        // Clips sent by Finder's Open With and the Dock icon (the app's document types).
+        .onOpenURL { url in open(url) }
+        .fileImporter(isPresented: $model.isImporting, allowedContentTypes: [.movie]) { result in
+            switch result {
+            case .success(let url): open(url, securityScoped: true)
+            case .failure(let error): model.importFailed(error)
+            }
+        }
+    }
+
+    /// Counting: the sidebar, and the camera's picture or the clip.
+    private var workout: some View {
         NavigationSplitView {
             Sidebar()
                 .navigationSplitViewColumnWidth(min: 250, ideal: 290)
@@ -39,71 +113,59 @@ struct ContentView: View {
                                        description: Text("Open a side-on clip of push-ups, or drop one here."))
             }
         }
-        .navigationTitle(camera.isOn ? camera.currentName ?? "Camera" : model.url?.lastPathComponent ?? "PushUpsMac")
-        .navigationSubtitle(camera.isOn ? camera.subtitle(posedPerSecond: live.posedPerSecond) : model.status)
-        // A setting changed mid-set counts the set so far again with it, as on a clip.
-        .onChange(of: model.settings) { _, settings in live.recount(with: settings) }
-        .toolbar {
-            ToolbarItemGroup {
-                if camera.isOn, !camera.choices.isEmpty {
-                    Picker("Camera", selection: Binding { camera.current ?? "" } set: { camera.select($0) }) {
-                        ForEach(camera.choices) { Text($0.name).tag($0.id) }
-                    }
-                    .help("The camera to count from")
-                }
-                Toggle(isOn: Binding { camera.isOn } set: { on in
-                    if on {
-                        model.player?.pause()
-                        let (poser, recorder) = live.start(settings: model.settings)
-                        Task { await camera.turnOn(feeding: poser, recording: recorder) }
-                    } else {
-                        turnCameraOff(openingTheSet: true)
-                    }
-                }) {
-                    Label("Camera", systemImage: "camera")
-                }
-                // Not while the last set is being written.
-                .disabled(live.isStopping)
-                .help("Count live from a camera: your iPhone, through Continuity Camera, or another camera")
-                if !camera.isOn, model.isPosing {
-                    ProgressView(value: model.progress)
-                        .progressViewStyle(.circular)
-                        .controlSize(.small)
-                        .help("Finding the body in every frame")
-                }
-                Button("Open…", systemImage: "folder") { model.isImporting = true }
-            }
-        }
-        .dropDestination(for: URL.self) { urls, _ in
-            // Only a movie: anything else would close the open clip for a file the app can't read.
-            guard let url = urls.first,
-                  (try? url.resourceValues(forKeys: [.contentTypeKey]))?.contentType?.conforms(to: .movie) == true
-            else { return false }
-            open(url, securityScoped: true)
-            return true
-        }
-        // Clips sent by Finder's Open With and the Dock icon (the app's document types).
-        .onOpenURL { url in open(url) }
-        .fileImporter(isPresented: $model.isImporting, allowedContentTypes: [.movie]) { result in
-            switch result {
-            case .success(let url): open(url, securityScoped: true)
-            case .failure(let error): model.importFailed(error)
-            }
-        }
     }
 
-    /// A clip opened while the camera is on takes its place; the set is still recorded, but not opened.
+    /// The camera and its picker, and opening a clip.
+    @ViewBuilder
+    private var workoutTools: some View {
+        if camera.isOn, !camera.choices.isEmpty {
+            Picker("Camera", selection: Binding { camera.current ?? "" } set: { camera.select($0) }) {
+                ForEach(camera.choices) { Text($0.name).tag($0.id) }
+            }
+            .help("The camera to count from")
+        }
+        Toggle(isOn: Binding { camera.isOn } set: { on in
+            if on {
+                model.player?.pause()
+                let (poser, recorder) = live.start(settings: model.settings)
+                Task { await camera.turnOn(feeding: poser, recording: recorder) }
+            } else {
+                turnCameraOff(openingTheSet: true)
+            }
+        }) {
+            Label("Camera", systemImage: "camera")
+        }
+        // Not while the last set is being written.
+        .disabled(live.isStopping)
+        .help("Count live from a camera: your iPhone, through Continuity Camera, or another camera")
+        if !camera.isOn, model.isPosing {
+            ProgressView(value: model.progress)
+                .progressViewStyle(.circular)
+                .controlSize(.small)
+                .help("Finding the body in every frame")
+        }
+        Button("Open…", systemImage: "folder") { model.isImporting = true }
+    }
+
+    /// A clip opened while the camera is on takes its place; the set is still recorded and kept, but not opened.
     private func open(_ url: URL, securityScoped: Bool = false) {
+        page = .workout
         turnCameraOff(openingTheSet: false)
         model.open(url, securityScoped: securityScoped)
     }
 
-    /// Ends the live set, and opens its recording as a clip once it's written.
+    /// Ends the live set and keeps it in the history, and opens its recording as a clip once it's written.
     private func turnCameraOff(openingTheSet: Bool) {
         guard camera.isOn else { return }
         camera.turnOff()
         Task {
-            if let url = await live.stop(), openingTheSet { model.open(url) }
+            guard let ended = await live.stop() else { return }
+            do {
+                try history.keep(ended)
+            } catch {
+                historyFailure = error.localizedDescription
+            }
+            if let url = ended.recording, openingTheSet { model.open(url) }
         }
     }
 }

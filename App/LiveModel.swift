@@ -31,6 +31,7 @@ final class LiveModel {
     private(set) var recordingFailure: String?
 
     @ObservationIgnored private var set = LiveSet(settings: PushUpsEngine.Settings())
+    @ObservationIgnored private var started = Date.now
     @ObservationIgnored private var lastShown = ContinuousClock.now
     @ObservationIgnored private var poser: LivePoser?
     @ObservationIgnored private var recorder: LiveRecorder?
@@ -44,6 +45,7 @@ final class LiveModel {
         self.poser = poser
         recorder = records ? makeRecorder() : nil
         set = LiveSet(settings: settings)
+        started = .now
         timings = Timings()
         if speaksCount { speaker.warmUp() }
         reading = Task { [weak self] in
@@ -53,10 +55,12 @@ final class LiveModel {
         return (poser, recorder)
     }
 
-    /// A recorder for the set, into Movies › PushUpsMac, named for when it starts, as QuickTime names its
-    /// recordings.
+    /// Where the sets are recorded: Movies › PushUpsMac.
+    static let folder = URL.moviesDirectory.appending(component: "PushUpsMac", directoryHint: .isDirectory)
+
+    /// A recorder for the set, into ``folder``, named for when it starts, as QuickTime names its recordings.
     private func makeRecorder() -> LiveRecorder? {
-        let folder = URL.moviesDirectory.appending(component: "PushUpsMac", directoryHint: .isDirectory)
+        let folder = Self.folder
         let name = "Push-ups \(Date.now.formatted(Self.fileDate)).mov"
         do {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -84,9 +88,16 @@ final class LiveModel {
         log.notice("counted again with the new settings: \(self.set.counter?.count ?? 0) reps")
     }
 
+    /// A set that has ended: when it started, its reps, and its recording, written, if there is one.
+    struct EndedSet {
+        var start: Date
+        var reps: [Rep]
+        var recording: URL?
+    }
+
     /// The camera is off: that's the end of the set, once Vision is done with the frame it's on. Returns the
-    /// recording, written, if there is one.
-    func stop() async -> URL? {
+    /// set, with its recording written; nil if no set was going.
+    func stop() async -> EndedSet? {
         guard let poser, !isStopping else { return nil }
         isStopping = true
         defer { isStopping = false }
@@ -102,22 +113,23 @@ final class LiveModel {
             let (full, straight, graded) = counter.tally
             log.notice("set: \(counter.count) reps, \(full)/\(graded) full range, \(straight)/\(graded) straight back")
         }
+        let ended = EndedSet(start: started, reps: set.counter?.reps ?? [])
         (overlay, posedPerSecond, shown) = (nil, nil, nil)
         let (received, dropped, failed, lastError) = poser.counts
         log.notice("live set stopped: \(received) frames received, \(dropped) dropped while Vision was busy, \(failed) failed\(lastError.map { " (\($0))" } ?? "", privacy: .public)")
-        guard let recorder else { return nil }
+        guard let recorder else { return ended }
         self.recorder = nil
         do {
             let (frames, poses, skipped, outOfOrder) = try await recorder.finish()
             log.notice("recorded \(frames) frames (\(skipped) skipped by the encoder, \(outOfOrder) out of order) and \(poses) poses to \(recorder.url.lastPathComponent, privacy: .public)")
-            return recorder.url
+            return EndedSet(start: ended.start, reps: ended.reps, recording: recorder.url)
         } catch LiveRecorder.Failure.noFrames {
             // The camera never delivered a frame (no access, or no camera): nothing to record, and no file.
-            return nil
+            return ended
         } catch {
             recordingFailure = "Couldn't record the set: \(error.localizedDescription)"
             log.error("recording failed: \(error.localizedDescription, privacy: .public)")
-            return nil
+            return ended
         }
     }
 
