@@ -27,6 +27,8 @@ final class LiveModel {
     var records = true
     /// Ending the set: the last posed frames going in and the recording being written.
     private(set) var isStopping = false
+    /// The set is being recorded: from the start of a set with `records` until the camera goes off.
+    private(set) var isRecording = false
     /// Why the last set wasn't recorded, if it wasn't.
     private(set) var recordingFailure: String?
 
@@ -44,6 +46,7 @@ final class LiveModel {
         let poser = LivePoser()
         self.poser = poser
         recorder = records ? makeRecorder() : nil
+        isRecording = recorder != nil
         set = LiveSet(settings: settings)
         started = .now
         timings = Timings()
@@ -100,6 +103,7 @@ final class LiveModel {
     func stop() async -> EndedSet? {
         guard let poser, !isStopping else { return nil }
         isStopping = true
+        isRecording = false
         defer { isStopping = false }
         poser.finish()
         // The last posed frames, counted and recorded.

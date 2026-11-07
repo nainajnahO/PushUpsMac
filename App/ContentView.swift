@@ -134,10 +134,13 @@ struct ContentView: View {
             }
         }) {
             Label("Camera", systemImage: "camera")
+                .symbolEffect(.pulse, isActive: isRecording)
         }
+        .tint(isRecording ? .red : nil)
         // Not while the last set is being written.
         .disabled(live.isStopping)
-        .help("Count live from a camera: your iPhone, through Continuity Camera, or another camera")
+        .help(!camera.isOn ? "Count live from a camera: your iPhone, through Continuity Camera, or another camera"
+              : isRecording ? "Stop recording, and open the set as a clip" : "Stop counting")
         if !camera.isOn, model.isPosing {
             ProgressView(value: model.progress)
                 .progressViewStyle(.circular)
@@ -146,6 +149,9 @@ struct ContentView: View {
         }
         Button("Open…", systemImage: "folder") { model.isImporting = true }
     }
+
+    /// The camera's frames are going into the set's recording: the Camera button is red and pulses.
+    private var isRecording: Bool { live.isRecording && camera.status == .running }
 
     /// A clip opened while the camera is on takes its place; the set is still recorded and kept, but not opened.
     private func open(_ url: URL, securityScoped: Bool = false) {
