@@ -76,7 +76,8 @@ grades don't match what you did, see the [User guide](#user-guide).
    - the panel under the picture adds it to its charts.
 
    While the set is being recorded, the **Camera** button is red and pulses.
-4. **End the set.** Click **Camera** again. The set goes into your history in the **Progress** tab. If it was
+4. **End the set.** Click **Camera** again. If it counted any reps, the set goes into your history in the
+   **Progress** tab. If it was
    recorded, the recording opens as a clip, with the count and grades it had live.
 
 While a set is going:
@@ -163,7 +164,7 @@ set goes for good when you next open the app.
   player opens it as a plain movie.
 - **Your history:** inside the app's own folder in your Library (`~/Library/Containers/nainajnahO.PushUpsMac`).
 - **The poses of clips you open:** in the app's caches, in the same folder, up to 200 MB. Deleting them is safe:
-  those clips are found again the next time you open them. Nothing is written into or beside your clips.
+  Vision goes through those clips again the next time you open them. Nothing is written into or beside your clips.
 
 ## Privacy
 
