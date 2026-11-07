@@ -3,7 +3,7 @@ import Observation
 import OSLog
 import PushUpsEngine
 
-private let log = Logger(subsystem: "nainajnahO.PushUpsMac", category: "clip")
+nonisolated private let log = Logger(subsystem: "nainajnahO.PushUpsMac", category: "clip")
 
 /// The open clip: its player, its poses (from Vision, once), and their reps, counted with the current
 /// settings.
@@ -63,16 +63,22 @@ final class ClipModel {
                 log.notice("player \(status == .playing ? "playing" : "paused", privacy: .public) at \(time, format: .fixed(precision: 2)) s, playhead on frame \(self.playhead.frame)")
             }
         }
-        (poses, analysis, failure, progress, isPosing) = (nil, nil, nil, 0, true)
+        (poses, analysis, failure, progress, isPosing) = (nil, nil, nil, 0, false)
         playhead.frame = 0
         log.notice("opened \(url.lastPathComponent, privacy: .public)")
         posing = Task {
             let start = ContinuousClock.now
             do {
-                let poses = try await engine.poses(of: url) { fraction in
-                    Task { @MainActor in self.progress = fraction }
+                var poses = try await engine.kept(of: url)
+                if poses == nil {
+                    guard !Task.isCancelled else { return }
+                    // Only now "Finding the body…": poses at hand show the count at once.
+                    isPosing = true
+                    poses = try await engine.detect(in: url) { fraction in
+                        Task { @MainActor in self.progress = fraction }
+                    }
                 }
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled, let poses else { return }
                 log.notice("poses: \(poses.frames.count) frames in \((ContinuousClock.now - start) / .seconds(1), format: .fixed(precision: 1)) s")
                 self.poses = poses
                 isPosing = false
@@ -126,18 +132,51 @@ final class ClipModel {
 
 /// Runs Vision off the main actor, and keeps each clip's poses, so reopening a clip or changing a
 /// setting never runs Vision again. A recorded live set brings its own poses, the ones it was counted
-/// with live, so it reopens with the count and grades it had.
+/// with live, so it reopens with the count and grades it had. A clip from the phone has its poses kept
+/// on disk as well, in the app's Caches, so it reopens after a relaunch without Vision too.
 actor PoseEngine {
     private var cache: [URL: Poses] = [:]
+    private let disk = PoseCache(folder: .cachesDirectory.appending(component: "Poses", directoryHint: .isDirectory))
 
-    func poses(of url: URL, progress: @escaping @Sendable (Double) -> Void) async throws -> Poses {
+    /// The clip's poses if they're at hand without Vision: opened before, recorded with the set, or kept on
+    /// disk. Poses on disk that can't be read are posed again, as if they weren't there.
+    func kept(of url: URL) async throws -> Poses? {
         if let poses = cache[url] { return poses }
-        let poses = if let recorded = try await Poses.recorded(in: url) {
-            recorded
-        } else {
-            try await Poses.detect(in: url, progress: progress)
+        if let recorded = try await Poses.recorded(in: url) {
+            cache[url] = recorded
+            return recorded
         }
+        do {
+            guard let entry = try disk.entry(for: url), let poses = try disk.poses(at: entry) else { return nil }
+            log.notice("poses of \(url.lastPathComponent, privacy: .public) kept on disk")
+            cache[url] = poses
+            return poses
+        } catch {
+            log.error("the poses kept on disk couldn't be read: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+    }
+
+    /// The clip's poses, found by Vision, and kept on disk under the file as it was before Vision began.
+    func detect(in url: URL, progress: @escaping @Sendable (Double) -> Void) async throws -> Poses {
+        var entry: URL?
+        do {
+            entry = try disk.entry(for: url)
+        } catch {
+            log.error("which file \(url.lastPathComponent, privacy: .public) is couldn't be read: \(error.localizedDescription, privacy: .public)")
+        }
+        if entry == nil {
+            log.notice("the poses of \(url.lastPathComponent, privacy: .public) won't be kept on disk")
+        }
+        let poses = try await Poses.detect(in: url, progress: progress)
         cache[url] = poses
+        if let entry {
+            do {
+                try disk.keep(poses, at: entry)
+            } catch {
+                log.error("the poses couldn't be kept on disk: \(error.localizedDescription, privacy: .public)")
+            }
+        }
         return poses
     }
 }

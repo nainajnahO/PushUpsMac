@@ -53,7 +53,8 @@ public struct Poses: Codable, Sendable {
     public func write(to url: URL) throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        try encoder.encode(self).write(to: url)
+        // Whole or not at all: a write cut short leaves the file as it was.
+        try encoder.encode(self).write(to: url, options: .atomic)
     }
 
     /// Width over height of the frame as shown.
