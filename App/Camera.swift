@@ -13,6 +13,26 @@ struct CameraChoice: Identifiable, Hashable, Sendable {
     let name: String
 }
 
+extension CameraChoice {
+    init(_ device: AVCaptureDevice) {
+        self.init(id: device.uniqueID, name: device.localizedName)
+    }
+
+    /// The camera picked last, kept across launches, with its name to show while it's away.
+    /// `AVCaptureDevice.userPreferredCamera` can't say this: while the picked camera is away, it reports another.
+    static var picked: CameraChoice? {
+        get {
+            guard let id = UserDefaults.standard.string(forKey: "cameraID"),
+                  let name = UserDefaults.standard.string(forKey: "cameraName") else { return nil }
+            return CameraChoice(id: id, name: name)
+        }
+        set {
+            UserDefaults.standard.set(newValue?.id, forKey: "cameraID")
+            UserDefaults.standard.set(newValue?.name, forKey: "cameraName")
+        }
+    }
+}
+
 /// What the camera in use delivers: the frame as shown, in pixels, and its frame rate.
 struct CameraFormat: Equatable, Sendable {
     var width: Int
@@ -21,11 +41,13 @@ struct CameraFormat: Equatable, Sendable {
 }
 
 /// The live camera: the cameras the Mac sees (an iPhone through Continuity Camera, the built-in camera,
-/// external ones), the one in use, and AVFoundation's capture session showing it. Nothing here touches a
-/// camera until ``turnOn()``, so opening the app or a clip never asks for camera access.
+/// external ones), the one the set uses, and AVFoundation's capture session showing it. Nothing here touches
+/// a camera until ``turnOn()``, so opening the app or a clip never asks for camera access.
 ///
-/// The camera in use follows `AVCaptureDevice.systemPreferredCamera`, which puts an iPhone first as it
-/// appears, and the picker sets `userPreferredCamera`, as AVFoundation's header recommends.
+/// A set holds one camera from start to end: the one picked last, or if none has been picked yet, the Mac's
+/// own camera. Only the picker changes it. `AVCaptureDevice.systemPreferredCamera` isn't used: it "may change
+/// spontaneously", and did mid-set (#82), and on macOS 27.2 it reads nil as the camera first turns on after
+/// launch. While the held camera is away (not connected, or suspended), the set waits for it.
 @Observable
 final class Camera {
     enum Status: Equatable {
@@ -34,33 +56,39 @@ final class Camera {
         case starting
         /// Camera access is off for the app, in System Settings.
         case denied
+        /// No camera has been picked yet, and the Mac has none.
         case noCamera
+        /// The held camera isn't connected, or is suspended: the set goes on once it's back.
+        case waiting
         case running
         case failed(String)
     }
 
     private(set) var status = Status.off
-    /// The cameras the Mac sees now.
-    private(set) var choices: [CameraChoice] = []
-    /// The camera in use, by its `uniqueID`.
-    private(set) var current: String?
+    /// The camera the set uses.
+    private(set) var held: CameraChoice?
     private(set) var format: CameraFormat?
+    /// The cameras the Mac sees now.
+    private var connected: [CameraChoice] = []
 
     /// Made as the camera turns on, so nothing at launch touches AVFoundation's capture.
     @ObservationIgnored private(set) var capture: CaptureSession?
     @ObservationIgnored private var discovery: AVCaptureDevice.DiscoverySession?
     @ObservationIgnored private var devicesObservation: NSKeyValueObservation?
-    @ObservationIgnored private var preferredObservation: PreferredCameraObserver?
+    @ObservationIgnored private var suspensionObservation: NSKeyValueObservation?
     @ObservationIgnored private var runtimeErrors: (any NSObjectProtocol)?
+    /// The camera the session shows, by its `uniqueID`.
+    @ObservationIgnored private var shown: String?
 
     var isOn: Bool { status != .off }
 
-    /// The camera in use, by name.
-    var currentName: String? {
-        choices.first { $0.id == current }?.name
+    /// The cameras the Mac sees now, and the held one while it's away, as the picker lists them.
+    var choices: [CameraChoice] {
+        guard let held, !connected.contains(where: { $0.id == held.id }) else { return connected }
+        return connected + [held]
     }
 
-    /// Asks for camera access the first time, then shows the camera the Mac prefers, its frames going to
+    /// Asks for camera access the first time, then shows the camera the set holds, its frames going to
     /// `poser`, and every one of them to `recorder`.
     func turnOn(feeding poser: LivePoser, recording recorder: LiveRecorder?) async {
         guard status == .off else { return }
@@ -86,73 +114,87 @@ final class Camera {
         let discovery = AVCaptureDevice.DiscoverySession(deviceTypes: [.continuityCamera, .builtInWideAngleCamera, .external],
                                                          mediaType: .video, position: .unspecified)
         self.discovery = discovery
-        // Both are key-value observed on whichever thread AVFoundation changes them on.
+        // Key-value observed on whichever thread AVFoundation changes them on.
         devicesObservation = discovery.observe(\.devices) { @Sendable [weak self] _, _ in
-            Task { @MainActor in self?.devicesChanged() }
-        }
-        preferredObservation = PreferredCameraObserver { @Sendable [weak self] in
-            Task { @MainActor in await self?.follow() }
+            Task { @MainActor in await self?.devicesChanged() }
         }
         runtimeErrors = NotificationCenter.default.addObserver(forName: AVCaptureSession.runtimeErrorNotification,
                                                                object: capture.session, queue: .main) { @Sendable [weak self] note in
-            let error = (note.userInfo?[AVCaptureSessionErrorKey] as? NSError)?.localizedDescription ?? "unknown error"
-            log.error("capture session error: \(error, privacy: .public)")
-            Task { @MainActor in self?.status = .failed(error) }
+            let error = note.userInfo?[AVCaptureSessionErrorKey] as? NSError
+            let message = error?.localizedDescription ?? "unknown error"
+            log.error("capture session error: \(message, privacy: .public)")
+            // The held camera unplugged: the device list changes too, and the set waits for it there.
+            guard (error as? AVError)?.code != .deviceWasDisconnected else { return }
+            Task { @MainActor in self?.status = .failed(message) }
         }
-        devicesChanged()
-        await follow()
+        held = CameraChoice.picked
+        await devicesChanged()
     }
 
     /// Stops the session and lets go of the camera.
     func turnOff() {
         guard isOn else { return }
         status = .off
-        (devicesObservation, preferredObservation, discovery) = (nil, nil, nil)
+        (devicesObservation, suspensionObservation, discovery) = (nil, nil, nil)
         if let runtimeErrors { NotificationCenter.default.removeObserver(runtimeErrors) }
         runtimeErrors = nil
-        (choices, current, format) = ([], nil, nil)
+        (connected, held, shown, format) = ([], nil, nil, nil)
         if let capture { Task { await capture.stop() } }
         capture = nil
         log.notice("camera off")
     }
 
-    /// The picker's choice: the Mac's preferred camera from now on, which the session then follows.
+    /// The picker's choice: the set's camera from now on, and the first one of the next set.
     func select(_ id: String) {
-        guard let device = discovery?.devices.first(where: { $0.uniqueID == id }) else { return }
-        AVCaptureDevice.userPreferredCamera = device
-        Task { await follow() }
+        guard id != held?.id, let device = discovery?.devices.first(where: { $0.uniqueID == id }) else { return }
+        let choice = CameraChoice(device)
+        (CameraChoice.picked, held) = (choice, choice)
+        log.notice("picked \(choice.name, privacy: .public) (\(choice.id, privacy: .public))")
+        Task { await show() }
     }
 
-    private func devicesChanged() {
+    private func devicesChanged() async {
         guard let discovery else { return }
-        choices = discovery.devices.map { CameraChoice(id: $0.uniqueID, name: $0.localizedName) }
-        log.notice("cameras: \(self.choices.map(\.name).joined(separator: ", "), privacy: .public)")
+        connected = discovery.devices.map(CameraChoice.init)
+        log.notice("cameras: \(self.connected.map(\.name).joined(separator: ", "), privacy: .public)")
+        await show()
     }
 
-    /// Shows the Mac's preferred camera, if it isn't the one in use.
-    private func follow() async {
-        guard isOn, let capture else { return }
-        guard let preferred = AVCaptureDevice.systemPreferredCamera else {
+    /// Shows the held camera, if it isn't showing; while it's away, the set waits for it. With none held (none
+    /// picked yet), takes the Mac's own camera, or without one, the first there is, and holds it.
+    private func show() async {
+        guard isOn, let capture, let discovery else { return }
+        if held == nil {
+            let devices = discovery.devices
+            held = (devices.first { $0.deviceType == .builtInWideAngleCamera } ?? devices.first).map(CameraChoice.init)
+        }
+        guard let held else {
             status = .noCamera
-            current = nil
-            format = nil
-            await capture.stop()
             return
         }
-        let id = preferred.uniqueID
-        guard id != current || status != .running else { return }
-        current = id
+        guard let device = discovery.devices.first(where: { $0.uniqueID == held.id }), !device.isSuspended else {
+            if status != .waiting { log.notice("waiting for \(held.name, privacy: .public) (\(held.id, privacy: .public))") }
+            (status, format) = (.waiting, nil)
+            return
+        }
+        guard held.id != shown || status != .running else { return }
+        shown = held.id
+        // Suspended, the camera stays listed but sends no frames: the set waits until it's back.
+        suspensionObservation = device.observe(\.isSuspended) { @Sendable [weak self] device, _ in
+            log.notice("\(device.localizedName, privacy: .public) \(device.isSuspended ? "suspended" : "back", privacy: .public)")
+            Task { @MainActor in await self?.show() }
+        }
         do {
-            let format = try await capture.show(id)
+            let format = try await capture.show(held.id)
             // Turned off, or moved on to another camera, meanwhile.
-            guard isOn, current == id else { return }
+            guard isOn, self.held == held else { return }
             self.format = format
             status = .running
-            log.notice("showing \(self.currentName ?? id, privacy: .public): \(format.width) × \(format.height) at \(format.framesPerSecond, format: .fixed(precision: 1)) fps")
+            log.notice("showing \(held.name, privacy: .public) (\(held.id, privacy: .public)): \(format.width) × \(format.height) at \(format.framesPerSecond, format: .fixed(precision: 1)) fps")
         } catch {
-            guard isOn, current == id else { return }
+            guard isOn, self.held == held else { return }
             status = .failed(error.localizedDescription)
-            log.error("couldn't show \(id, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            log.error("couldn't show \(held.id, privacy: .public): \(error.localizedDescription, privacy: .public)")
         }
     }
 }
@@ -277,27 +319,6 @@ private nonisolated final class FrameSink: NSObject, AVCaptureVideoDataOutputSam
         // Every frame into the recording, before Vision takes it or drops it.
         recorder?.append(frame)
         poser.receive(frame)
-    }
-}
-
-/// Hears `AVCaptureDevice.systemPreferredCamera` change. It's a class property, and Swift's `observe(_:)` only
-/// takes an instance's key path, so this observes it the Objective-C way, on the class object.
-private final class PreferredCameraObserver: NSObject {
-    private let changed: @Sendable () -> Void
-
-    init(changed: @escaping @Sendable () -> Void) {
-        self.changed = changed
-        super.init()
-        (AVCaptureDevice.self as AnyObject).addObserver(self, forKeyPath: "systemPreferredCamera", options: [.new], context: nil)
-    }
-
-    deinit {
-        (AVCaptureDevice.self as AnyObject).removeObserver(self, forKeyPath: "systemPreferredCamera")
-    }
-
-    nonisolated override func observeValue(forKeyPath keyPath: String?, of object: Any?,
-                                           change: [NSKeyValueChangeKey: Any]?, context: UnsafeMutableRawPointer?) {
-        changed()
     }
 }
 

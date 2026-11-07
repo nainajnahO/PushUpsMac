@@ -29,7 +29,7 @@ struct ContentView: View {
             }
         }
         .navigationTitle(page == .progress ? "Progress"
-                         : camera.isOn ? camera.currentName ?? "Camera" : model.url?.lastPathComponent ?? "PushUpsMac")
+                         : camera.isOn ? camera.held?.name ?? "Camera" : model.url?.lastPathComponent ?? "PushUpsMac")
         .navigationSubtitle(page == .progress ? ""
                             : camera.isOn ? camera.subtitle(posedPerSecond: live.posedPerSecond) : model.status)
         // A setting changed mid-set counts the set so far again with it, as on a clip.
@@ -119,7 +119,7 @@ struct ContentView: View {
     @ViewBuilder
     private var workoutTools: some View {
         if camera.isOn, !camera.choices.isEmpty {
-            Picker("Camera", selection: Binding { camera.current ?? "" } set: { camera.select($0) }) {
+            Picker("Camera", selection: Binding { camera.held?.id ?? "" } set: { camera.select($0) }) {
                 ForEach(camera.choices) { Text($0.name).tag($0.id) }
             }
             .help("The camera to count from")
@@ -196,13 +196,16 @@ struct CameraView: View {
         case .noCamera:
             ContentUnavailableView("No Camera", systemImage: "video.slash",
                                    description: Text("Stand your iPhone near the Mac with Continuity Camera on, or connect a camera."))
+        case .waiting:
+            ContentUnavailableView("Waiting for \(camera.held?.name ?? "the Camera")", systemImage: "video.badge.ellipsis",
+                                   description: Text("The set goes on once it's back. To count from another camera, pick it in the toolbar."))
         case .failed(let message):
             ContentUnavailableView("The Camera Stopped", systemImage: "exclamationmark.triangle", description: Text(message))
         case .running:
             if let capture = camera.capture {
                 // As a clip's: the picture over the panel, sharing the window's height.
                 VStack(spacing: 0) {
-                    CameraPreview(session: capture.session, cameraID: camera.current)
+                    CameraPreview(session: capture.session, cameraID: camera.held?.id)
                         .overlay { LiveOverlay(live: live, style: style) }
                         .frame(minHeight: 200, maxHeight: .infinity)
                     if let counter = live.shown {
