@@ -77,8 +77,7 @@ grades don't match what you did, see the [User guide](#user-guide).
 
    While the set is being recorded, the **Camera** button is red and pulses.
 4. **End the set.** Click **Camera** again. If it counted any reps, the set goes into your history in the
-   **Progress** tab. If it was
-   recorded, the recording opens as a clip, with the count and grades it had live.
+   **Progress** tab. If it was recorded, the recording opens as a clip, with the count and grades it had live.
 
 While a set is going:
 
