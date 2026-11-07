@@ -208,6 +208,7 @@ actor CaptureSession {
 
     /// Read on the main actor only by the preview layer, which AVFoundation lets attach from any thread.
     nonisolated(unsafe) let session = AVCaptureSession()
+    /// The camera shown, its device locked for configuration while it is (``show(_:)``).
     private var input: AVCaptureDeviceInput?
     /// The frames for Vision, on a queue of their own, so reconfiguring the session doesn't hold them up.
     private let output = AVCaptureVideoDataOutput()
@@ -249,21 +250,45 @@ actor CaptureSession {
     func show(_ id: String) throws -> CameraFormat {
         guard let device = AVCaptureDevice(uniqueID: id) else { throw Failure.gone }
         let input = try AVCaptureDeviceInput(device: device)
+        let old = self.input
+        // Locked while it's shown, once: on macOS the session puts an unlocked camera back in the session
+        // preset's format (1080p), and macOS has no `.inputPriority` preset to keep the camera's own.
+        let locking = device != old?.device
+        if locking { try device.lockForConfiguration() }
         session.beginConfiguration()
-        if let old = self.input { session.removeInput(old) }
+        if let old { session.removeInput(old) }
         guard session.canAddInput(input) else {
-            if let old = self.input { session.addInput(old) }
+            if let old { session.addInput(old) }
             session.commitConfiguration()
+            if locking { device.unlockForConfiguration() }
             throw Failure.refused
         }
         session.addInput(input)
+        if let format = Self.format720p(of: device) { device.activeFormat = format }
         session.commitConfiguration()
+        if locking { old?.device.unlockForConfiguration() }
         self.input = input
         level(device)
         if !session.isRunning { session.startRunning() }
         let dimensions = CMVideoFormatDescriptionGetDimensions(device.activeFormat.formatDescription)
         return CameraFormat(width: Int(dimensions.width), height: Int(dimensions.height),
                             framesPerSecond: 1 / device.activeVideoMinFrameDuration.seconds)
+    }
+
+    /// 1280 × 720 at 30 fps, where the camera has it, in place of the 1080p it starts in: the six clips count
+    /// and grade the same, and a set records at less than half the size (#91). Set on the camera, as the
+    /// session preset `.hd1280x720` isn't enough: under it, the iPhone went on sending 1080p. The iPhone has two
+    /// 720p formats, up to 30 and up to 60 fps: the one up to 30.
+    private static func format720p(of device: AVCaptureDevice) -> AVCaptureDevice.Format? {
+        let fastest = { (format: AVCaptureDevice.Format) in
+            format.videoSupportedFrameRateRanges.map(\.maxFrameRate).max() ?? 0
+        }
+        return device.formats
+            .filter { format in
+                let size = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
+                return size.width == 1280 && size.height == 720
+            }
+            .min { fastest($0) < fastest($1) }
     }
 
     /// Turns and un-mirrors the frames Vision gets, as the preview is, and follows the rotation as it changes.
@@ -297,6 +322,7 @@ actor CaptureSession {
             session.beginConfiguration()
             session.removeInput(input)
             session.commitConfiguration()
+            input.device.unlockForConfiguration()
         }
         input = nil
     }
