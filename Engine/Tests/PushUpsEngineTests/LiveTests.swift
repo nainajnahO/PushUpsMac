@@ -79,7 +79,7 @@ private func blankFrame(at time: Double) throws -> CMReadySampleBuffer<CVReadOnl
 }
 
 /// What dropping two frames in three changes: at 8 poses a second (10 on fast-reps) the deepest frame can fall
-/// between the frames kept. Live at 1080p poses 23–30 a second, so these stay a stress measurement (#23).
+/// between the frames kept. Live, Vision poses 23–30 a second, so these stay a stress measurement (#23).
 private let knownDropMisses: [String: String] = [
     "clean-right 3 3": "Rep 3 locks out as the clip ends; with one frame in three its top reads 0.84 of the 0.87 needed",
     "hips-low 3 2": "Rep 2's bottom reads 0.614 against 0.581 with every frame, over the 0.60 down height",
