@@ -15,6 +15,10 @@ PushUpsMac also opens a clip you filmed earlier and counts the push-ups in it th
 The body pose comes from Apple's Vision framework, on the Mac itself. Nothing is uploaded, and there's no account or
 API key.
 
+![PushUpsMac counting five push-ups in a clip: the overlay on the near arm and the body line, the reps and their grades in the sidebar, and the panel's charts following the playhead](docs/demo.webp)
+
+*Demo footage: [olia danilevich on Pexels](https://www.pexels.com/video/man-doing-push-ups-4964650/).*
+
 <!-- Screenshot: a live set in progress: the camera's picture with the overlay on the body, the reps in the sidebar, and the panel's charts under the picture -->
 
 ## What you need
@@ -176,8 +180,9 @@ Everything stays on your Mac:
 - **The app opens only the clips you give it.** It writes only to its own folder and Movies › PushUpsMac, and moves
   a deleted set's recording to the Trash.
 
-This repository holds no video either. The tests use stick figures (Vision's joints for each frame of six clips) and
-counts in `golden/`. The clips themselves stay on the Mac they were filmed for.
+This repository holds no video of its test clips either. The tests use stick figures (Vision's joints for each frame
+of six clips) and counts in `golden/`. The clips themselves stay on the Mac they were filmed for. The demo at the top
+is a stock clip from Pexels.
 
 ## User guide
 
@@ -311,3 +316,6 @@ Inspired by the [push-ups demo](https://github.com/jeremyipark/vision-demos/tree
 [vision-demos](https://github.com/jeremyipark/vision-demos) by Jeremy Park, licensed under Apache-2.0. The method
 (counting reps from the shoulder's height above the wrist, timing each rep's phases, and grading its range of motion
 and body line) comes from it. PushUpsMac is licensed under Apache-2.0 as well (see [LICENSE](LICENSE)).
+
+The demo at the top is made from [a clip by olia danilevich](https://www.pexels.com/video/man-doing-push-ups-4964650/)
+on Pexels, under the [Pexels License](https://www.pexels.com/license/).
