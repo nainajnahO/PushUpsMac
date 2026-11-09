@@ -19,8 +19,7 @@ up the camera, start with the [README](../README.md#get-started).
 3. **Do your push-ups.** As each rep is counted:
    - the Mac says its number, and what fell short if anything did ("not to the floor", "not back up", "hips low",
      "hips high");
-   - it's added to **Reps** in the sidebar, with its time and its grade;
-   - the panel under the picture adds it to its charts.
+   - the panel under the picture adds it to its totals and its charts.
 
    While the set is being recorded, the **Camera** button is red and pulses.
 4. **End the set.** Click **Camera** again. If it counted any reps, the set goes into your history in the
@@ -51,7 +50,6 @@ changes, it's posed again. A set recorded by the app has its poses inside the mo
 Then the clip plays from the start:
 
 - **The overlay** follows the clip as it plays, and as you scrub.
-- **Click a rep** in the sidebar to jump to where it starts.
 - **The panel** under the clip shows the whole set:
   - the push-ups, their average push-up time, and how many had full range and a straight back;
   - your elbow's angle, with the lines a rep must reach at the bottom and at the top;
@@ -60,14 +58,15 @@ Then the clip plays from the start:
 
   A line on each chart follows the frame on screen.
 
-<!-- Screenshot: a clip open, with the overlay, a rep selected in the sidebar, and the panel's charts with the playhead line -->
+<!-- Screenshot: a clip open, with the overlay, and the panel's charts with the playhead line -->
 
-Each rep in the sidebar shows:
+Each rep shows in the panel's charts:
 
-- **Its push-up time.**
-- **When it starts**, how long it took to go down, and how long it paused at the bottom.
-- **Its range:** full, or what fell short ("not to the floor", "not back up").
-- **Its back:** straight, or "hips low" or "hips high" ("unseen" if the body line couldn't be measured).
+- **Its push-up time:** a point on the push-up time chart, marked Good, Short, Bent, or Short and bent.
+- **Its range:** on the elbow chart, its deepest point and its lockout, each marked Reached or Short. Short at the
+  bottom is "not to the floor", at the top "not back up".
+- **Its back:** on the body line chart, red where it bends past the back tolerance. On the overlay, the body line
+  turns red and dashed, labelled "Hips low" or "Hips high" at the hip.
 
 ## The Progress tab
 
@@ -188,7 +187,7 @@ followed half reps where the nearer one didn't.
   - **Moving:** from leaving the bottom to the top, leaving out a pause on the floor.
   - **Whole way up:** from the deepest point to the top, with the pause included.
 
-  It changes the times in the sidebar, the panel, and the Progress tab.
+  It changes the times in the panel and the Progress tab.
 - **Default:** Moving.
 - **When to change it:** pick Whole way up if you pause at the bottom on purpose and want the pause counted.
 

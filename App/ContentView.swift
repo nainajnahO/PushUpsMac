@@ -219,7 +219,7 @@ struct CameraView: View {
     }
 }
 
-/// The sidebar: the result and the reps, of the live set or the clip, and the settings that grade them.
+/// The sidebar: how a live set is counted, and the settings that grade it. The results are in the panel.
 struct Sidebar: View {
     @Environment(ClipModel.self) private var model
     @Environment(Camera.self) private var camera
@@ -229,13 +229,6 @@ struct Sidebar: View {
         @Bindable var model = model
         @Bindable var live = live
         List {
-            if camera.isOn {
-                if let counter = live.shown {
-                    ResultSections(analysis: counter, metric: model.settings.metric, jump: nil)
-                }
-            } else if let analysis = model.analysis {
-                ResultSections(analysis: analysis, metric: model.settings.metric, jump: model.jump(to:))
-            }
             Section("Live") {
                 Toggle("Say each rep's number", isOn: $live.speaksCount)
                     .help("Counting live, the Mac says each rep's number as it's counted.")
@@ -271,78 +264,6 @@ struct Sidebar: View {
     }
 }
 
-/// The sidebar's result and reps. On a clip, a rep jumps the player to it.
-struct ResultSections: View {
-    let analysis: RepCounter
-    let metric: Metric
-    let jump: ((RepRow) -> Void)?
-
-    var body: some View {
-        Section("Result") {
-            LabeledContent("Push-ups", value: "\(analysis.count)")
-            if let summary = RepSummary(analysis.reps, metric: metric) {
-                LabeledContent("Average push-up time", value: seconds(summary.meanSeconds))
-            }
-            let (full, straight, graded) = analysis.tally
-            LabeledContent("Full range", value: "\(full) of \(graded)")
-            LabeledContent("Straight back", value: "\(straight) of \(graded)")
-        }
-        if !analysis.reps.isEmpty {
-            Section("Reps") {
-                ForEach(analysis.reps.map { $0.row(metric: metric) }) { row in
-                    if let jump {
-                        Button { jump(row) } label: { RepRowView(row: row) }
-                            .buttonStyle(.plain)
-                            .help("Show rep \(row.id)")
-                    } else {
-                        RepRowView(row: row)
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// A rep in the sidebar: its push-up time, when it starts and its other times, and its grade.
-struct RepRowView: View {
-    let row: RepRow
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("Rep \(row.id)").fontWeight(.medium)
-                Spacer()
-                Text(seconds(row.pushUpSeconds)).monospacedDigit()
-            }
-            Text("at \(seconds(row.startSeconds)) · down \(seconds(row.downSeconds)) · pause \(seconds(row.pauseSeconds))")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .monospacedDigit()
-            HStack(spacing: 12) {
-                GradeLabel(text: row.range, ok: row.complete)
-                GradeLabel(text: row.back, ok: row.straight)
-            }
-            .font(.caption)
-        }
-        .contentShape(.rect)
-    }
-}
-
-/// One side of a rep's grade: a check or a cross as well as the colour, so it doesn't rest on colour alone.
-struct GradeLabel: View {
-    let text: String
-    let ok: Bool
-
-    var body: some View {
-        Label {
-            Text(text)
-        } icon: {
-            Image(systemName: ok ? "checkmark.circle.fill" : "xmark.circle.fill")
-                .foregroundStyle(ok ? .green : .red)
-        }
-    }
-}
-
 /// A setting's slider, its name and value above it. The trackpad taps as the slider reaches each step.
 struct SettingSlider: View {
     let title: String
@@ -365,10 +286,6 @@ struct SettingSlider: View {
         }
         .help(help)
     }
-}
-
-private func seconds(_ value: Double) -> String {
-    value.formatted(.number.precision(.fractionLength(2))) + " s"
 }
 
 /// The overlay on the playing clip, on the model's playhead, so it follows playback and scrubbing

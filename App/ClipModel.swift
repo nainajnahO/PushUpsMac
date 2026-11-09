@@ -113,12 +113,6 @@ final class ClipModel {
         log.notice("\(analysis.count) reps, \(full)/\(graded) full range, \(straight)/\(graded) straight back, in \((ContinuousClock.now - start) / .milliseconds(1), format: .fixed(precision: 1)) ms")
     }
 
-    /// Shows the rep from where it starts going down.
-    func jump(to rep: RepRow) {
-        player?.seek(to: CMTime(seconds: rep.startSeconds, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
-        log.notice("jumped to rep \(rep.id) at \(rep.startSeconds, format: .fixed(precision: 2)) s")
-    }
-
     private func follow(_ time: CMTime) {
         guard let analysis else { return }
         let frame = analysis.frame(at: time.seconds)

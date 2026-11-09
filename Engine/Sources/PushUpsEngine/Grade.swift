@@ -80,26 +80,9 @@ func mean(_ values: [Double]) -> Double {
     values.reduce(0, +) / Double(values.count)
 }
 
-/// One rep as the app lists it: where it starts (a click jumps there), its times, and its grade.
-public struct RepRow: Identifiable, Sendable, Equatable {
-    /// The rep's number.
-    public var id: Int
-    public var startSeconds: Double
-    public var downSeconds: Double
-    public var pauseSeconds: Double
-    /// By the metric: leaving the bottom to lockout (moving), or the deepest point to lockout (ascent).
-    public var pushUpSeconds: Double
-    /// "full", "not to the floor", "not back up".
-    public var range: String
-    /// "straight", "hips low", "hips high", "unseen".
-    public var back: String
-    public var complete: Bool
-    public var straight: Bool
-}
-
 extension Rep {
-    /// What's said as the rep is counted: its number, and with `cues`, what fell short, in the sidebar's words
-    /// ("3, not to the floor, hips low"). No cue where Vision didn't see the back.
+    /// What's said as the rep is counted: its number, and with `cues`, what fell short ("3, not to the floor, hips
+    /// low"). No cue where Vision didn't see the back.
     public func spoken(cues: Bool) -> String {
         var words = ["\(number)"]
         if cues {
@@ -107,11 +90,5 @@ extension Rep {
             if !straight, grade.backWorst.isFinite { words.append(grade.backLabel) }
         }
         return words.joined(separator: ", ")
-    }
-
-    public func row(metric: Metric) -> RepRow {
-        RepRow(id: number, startSeconds: descentTime, downSeconds: eccentricSeconds, pauseSeconds: pauseSeconds,
-               pushUpSeconds: seconds(metric), range: grade.reason, back: grade.backLabel,
-               complete: complete, straight: straight)
     }
 }
