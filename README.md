@@ -31,8 +31,8 @@
   with no sagging or piked hips. Your near arm and body line are drawn on the picture.
 - **Said out loud.** The Mac says each rep's number, and what fell short: "not to the floor", "not back up", "hips
   low", "hips high".
-- **Every set recorded.** The video and the poses it was counted with go to Movies › PushUpsMac, and the set reopens
-  as a clip with the count and grades it had live.
+- **Every set recorded.** The video and the poses it was counted with go to Movies › PushUpsMac, cut to the set
+  itself, without the set-up or getting up, and the set reopens as a clip with the count and grades it had live.
 - **Clips too.** Open a clip you filmed earlier and it's counted the same way, with charts of your elbow's angle,
   your body line and each rep's time following the playhead.
 - **Your progress.** Every set in a history by day, week, month or year, beside this week against last, days in a

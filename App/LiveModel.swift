@@ -126,6 +126,7 @@ final class LiveModel {
         do {
             let (frames, poses, skipped, outOfOrder) = try await recorder.finish()
             log.notice("recorded \(frames) frames (\(skipped) skipped by the encoder, \(outOfOrder) out of order) and \(poses) poses to \(recorder.url.lastPathComponent, privacy: .public)")
+            await cutToSet(recorder)
             return EndedSet(start: ended.start, reps: ended.reps, recording: recorder.url)
         } catch LiveRecorder.Failure.noFrames {
             // The camera never delivered a frame (no access, or no camera): nothing to record, and no file.
@@ -134,6 +135,18 @@ final class LiveModel {
             recordingFailure = "Couldn't record the set: \(error.localizedDescription)"
             log.error("recording failed: \(error.localizedDescription, privacy: .public)")
             return ended
+        }
+    }
+
+    /// The recording cut to the set, so it opens without the set-up and closes without getting up. One that
+    /// can't be cut stays whole: the set is in it either way.
+    private func cutToSet(_ recorder: LiveRecorder) async {
+        do {
+            if let span = try await recorder.cutToSet(settings: set.settings) {
+                log.notice("cut the recording to the set: \(span.lowerBound, format: .fixed(precision: 2)) to \(span.upperBound, format: .fixed(precision: 2)) s")
+            }
+        } catch {
+            log.error("couldn't cut the recording to the set, kept whole: \(error.localizedDescription, privacy: .public)")
         }
     }
 

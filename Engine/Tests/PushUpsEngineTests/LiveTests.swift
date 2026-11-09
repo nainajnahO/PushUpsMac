@@ -216,3 +216,77 @@ func liveSetCountsAsTheClip(name: String) throws {
 @Test func aClipHasNoRecordedPoses() async throws {
     #expect(try await Poses.recorded(in: testClip("clean-right")) == nil)
 }
+
+/// A recorded set is cut from half a second before the plank was found to a second after the last rep's lockout,
+/// and counts and grades on its own as it did whole. Walk-in's set-up and getting up are left out.
+@Test func setSpanKeepsTheSet() throws {
+    let poses = try Poses(contentsOf: golden("walk-in", "poses-vision.json"))
+    let whole = RepCounter(poses: poses, settings: Settings())
+    let span = try #require(poses.setSpan(settings: Settings()))
+    let (plank, last) = (try #require(whole.plank), try #require(whole.reps.last))
+    #expect(span == (whole.times[plank.frame] - 0.5)...(last.lockoutTime + 1))
+    var kept = poses
+    kept.frames = poses.frames.filter { span.contains($0.time) }
+    let cut = RepCounter(poses: kept, settings: Settings())
+    #expect(cut.reps.map(\.grade) == whole.reps.map(\.grade))
+    print("walk-in cut to \(String(format: "%.2f", span.lowerBound))–\(String(format: "%.2f", span.upperBound)) s of "
+          + "\(String(format: "%.2f", poses.frames.last!.time)) s")
+}
+
+/// The cut ends before the elbow bends again: fast-reps' athlete lies down 0.6 s after the last rep, and that bend,
+/// cut off, would count as a fifth.
+@Test func setSpanStopsBeforeTheNextBend() throws {
+    let poses = try Poses(contentsOf: golden("fast-reps", "poses-vision.json"))
+    let whole = RepCounter(poses: poses, settings: Settings())
+    let span = try #require(poses.setSpan(settings: Settings()))
+    let last = try #require(whole.reps.last)
+    #expect(span.lowerBound == poses.frames[0].time && last.lockoutTime < span.upperBound)
+    #expect(span.upperBound < last.lockoutTime + 1)
+    var kept = poses
+    kept.frames = poses.frames.filter { span.contains($0.time) }
+    #expect(RepCounter(poses: kept, settings: Settings()).reps.map(\.grade) == whole.reps.map(\.grade))
+}
+
+/// Without a rep, or with nothing outside the set, the clip stays whole: clean-left starts in the plank, and its
+/// last rep locks out 0.54 s before the end.
+@Test func setSpanKeepsAClipWhole() throws {
+    let nobody = Poses(source: "nobody", width: 1280, height: 720,
+                       frames: (0..<60).map { Pose(time: Double($0) / 30, joints: [:]) })
+    #expect(nobody.setSpan(settings: Settings()) == nil)
+    let clean = try Poses(contentsOf: golden("clean-left", "poses-vision.json"))
+    #expect(clean.setSpan(settings: Settings()) == nil)
+}
+
+/// A recording cut to a stretch keeps its frames and poses from there on, timed from the cut: the pose showing at
+/// the cut moves to its start, and the rest keep their joints and their places.
+@Test func aCutRecordingKeepsItsPoses() async throws {
+    let url = FileManager.default.temporaryDirectory.appending(component: "cut-\(UUID().uuidString).mov")
+    defer { try? FileManager.default.removeItem(at: url) }
+    let recorder = try LiveRecorder(url: url)
+    var written: [Pose] = []
+    for i in 0..<30 {
+        let time = 1000 + Double(i) / 30
+        try await Task.sleep(for: .seconds(1.0 / 30))
+        recorder.append(try blankFrame(at: time))
+        if i.isMultiple(of: 2) {
+            let pose = Pose(time: Double(i) / 30, joints: [
+                .rightShoulder: Joint(location: CGPoint(x: 0.3 + 0.001 * Double(i), y: 0.4), confidence: 0.9),
+            ])
+            recorder.append(pose, at: CMTime(seconds: time, preferredTimescale: 600_000))
+            written.append(pose)
+        }
+    }
+    _ = try await recorder.finish()
+    let whole = try #require(try await Poses.recorded(in: url))
+    let start = 0.41, end = 0.81
+    try await recorder.cut(to: start...end)
+    let read = try #require(try await Poses.recorded(in: url))
+    // The pose showing at the cut, from 0.4 s, and every one after it up to the end.
+    let expected = whole.frames.filter { $0.time > start - 1.0 / 15 && $0.time < end }
+    #expect(read.frames.map(\.joints) == expected.map(\.joints))
+    for (back, pose) in zip(read.frames, expected) {
+        #expect(abs(back.time - max(0, pose.time - start)) < 0.002, "\(back.time) against \(pose.time - start)")
+    }
+    let video = try #require(try await AVURLAsset(url: url).loadTracks(withMediaType: .video).first)
+    #expect(abs(try await video.load(.timeRange).duration.seconds - (end - start)) < 0.04)
+}

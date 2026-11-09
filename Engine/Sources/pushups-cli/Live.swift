@@ -237,7 +237,8 @@ func spokenSeconds(_ utterance: AVSpeechUtterance, by synthesizer: AVSpeechSynth
 
 
 /// The recording's round trip: written as the app writes it, then reopened as the app opens a clip, with its
-/// recorded poses, and counted again; and, apart, Vision run afresh on the recorded video.
+/// recorded poses, and counted again; and, apart, Vision run afresh on the recorded video. Last, cut to the set
+/// as the app cuts it, and reopened again.
 @MainActor
 func printRoundTrip(_ recorder: LiveRecorder, run: LiveRun, counter live: RepCounter) async throws {
     let written = try await recorder.finish()
@@ -262,6 +263,16 @@ func printRoundTrip(_ recorder: LiveRecorder, run: LiveRun, counter live: RepCou
     let seconds = (ContinuousClock.now - start) / .seconds(1)
     let afresh = RepCounter(poses: fresh, settings: live.settings)
     print("  Vision afresh on the recording, every frame (\(fresh.frames.count), \(fixed(seconds, 1)) s): \(summary(afresh)); \(compare(afresh.reps, live.reps)) against live")
+    guard let span = try await recorder.cutToSet(settings: live.settings) else {
+        print("  cut to the set: left whole")
+        return
+    }
+    guard let cut = try await Poses.recorded(in: recorder.url) else {
+        print("  cut to the set: no recorded poses after the cut")
+        return
+    }
+    print("  cut to the set: \(fixed(span.lowerBound, 2)) to \(fixed(span.upperBound, 2)) s; reopened: \(cut.frames.count) poses, "
+          + summary(RepCounter(poses: cut, settings: live.settings)))
 }
 
 /// The middle value of `values`, or 0 for none.

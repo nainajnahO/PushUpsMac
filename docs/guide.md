@@ -24,7 +24,8 @@ up the camera, start with the [README](../README.md#get-started).
 
    While the set is being recorded, the **Camera** button is red and pulses.
 4. **End the set.** Click **Camera** again. If it counted any reps, the set goes into your history in the
-   **Progress** tab. If it was recorded, the recording opens as a clip, with the count and grades it had live.
+   **Progress** tab. If it was recorded, the recording is cut to the set and opens as a clip, with the count and
+   grades it had live.
 
 While a set is going:
 
@@ -146,8 +147,11 @@ These are for counting from the camera.
 - **When to change it:** turn it off to hear only the count.
 
 **Record each set:**
-- **What it does:** saves the camera's video, without sound, and the poses to Movies › PushUpsMac. The set opens as a
-  clip once the camera is off.
+- **What it does:** saves the camera's video, without sound, and the poses to Movies › PushUpsMac. Once the camera is
+  off, the recording is cut to the set: from half a second before the app saw you hold your plank to a second after
+  your last rep, or sooner if you bend your arms again, as you lie down. The cut keeps the video as it was filmed,
+  without encoding it again. A set without a rep, or one whose cut wouldn't count the same, is kept whole. Then the
+  set opens as a clip.
 - **Default:** on. You can't change it while the camera is on.
 - **When to change it:** turn it off to keep no video. The set still goes into your history, counted live, but
   there's no clip to watch it back.
