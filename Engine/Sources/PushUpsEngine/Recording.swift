@@ -181,3 +181,59 @@ extension Poses {
         return Poses(source: url.lastPathComponent, width: Int(size.width), height: Int(size.height), frames: frames)
     }
 }
+
+// A recorded set is cut to the set once the camera is off, so it opens without the set-up and closes without
+// getting up. The set's poses decide where: the movie's own, as the clip is counted when it's opened.
+
+extension Poses {
+    /// The stretch of a set's clip to keep, seconds: from half a second before the plank was found (the 0.2 s hold
+    /// it's found on included, so the cut clip finds it on the same frame) to a second after the last rep's
+    /// lockout, or sooner if the elbow bends again: a bend cut off at the end would count as a rep (lying down
+    /// after fast-reps' last rep, 0.6 s on). Nil, to keep the whole clip, without a rep, or where the stretch on
+    /// its own wouldn't count and grade as the whole clip does: the near side is the one Vision was surer of up to
+    /// the plank, which without the set-up could turn out the other.
+    public func setSpan(settings: Settings) -> ClosedRange<Double>? {
+        let whole = RepCounter(poses: self, settings: settings)
+        guard let plank = whole.plank, let last = whole.reps.last,
+              let first = frames.first?.time, let end = frames.last?.time else { return nil }
+        // A fifth of a second before it bends past the down angle: the cut clip's last frames are smoothed over
+        // fewer, and could read it sooner.
+        let bends = (last.lockoutFrame..<whole.elbow.count).first { whole.elbow[$0] < RepCounter.downAngle }
+        let tail = min(last.lockoutTime + 1, bends.map { whole.times[$0] - 0.2 } ?? .infinity)
+        let span = max(first, whole.times[plank.frame] - 0.5)...min(end, max(last.lockoutTime, tail))
+        guard span != first...end else { return nil }
+        var kept = self
+        kept.frames = frames.filter { span.contains($0.time) }
+        let grades = { (counter: RepCounter) in counter.reps.map { [$0.grade.reason, $0.grade.backLabel] } }
+        return grades(RepCounter(poses: kept, settings: settings)) == grades(whole) ? span : nil
+    }
+}
+
+extension LiveRecorder {
+    /// Cuts the finished recording to its set (``Poses/setSpan(settings:)``), counted with `settings`. Returns
+    /// the stretch kept, in the whole movie's seconds; nil if the movie was left whole.
+    public func cutToSet(settings: Settings) async throws -> ClosedRange<Double>? {
+        guard let poses = try await Poses.recorded(in: url), let span = poses.setSpan(settings: settings) else {
+            return nil
+        }
+        try await cut(to: span)
+        return span
+    }
+
+    /// Cuts the movie to `span`, seconds of it, its frames and poses alike, without encoding a frame again: a
+    /// passthrough export, which keeps the poses' metadata track and times both from the cut. The cut movie
+    /// replaces the whole one once it's written; if it can't be, the movie stays whole.
+    func cut(to span: ClosedRange<Double>) async throws {
+        guard let export = AVAssetExportSession(asset: AVURLAsset(url: url), presetName: AVAssetExportPresetPassthrough)
+        else { throw Failure.failed("no passthrough export for \(url.lastPathComponent)") }
+        export.timeRange = CMTimeRange(start: CMTime(seconds: span.lowerBound, preferredTimescale: 600),
+                                       end: CMTime(seconds: span.upperBound, preferredTimescale: 600))
+        // Foundation's own place for a file that's to replace another, on the same volume.
+        let folder = try FileManager.default.url(for: .itemReplacementDirectory, in: .userDomainMask,
+                                                 appropriateFor: url, create: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let cut = folder.appending(component: url.lastPathComponent)
+        try await export.export(to: cut, as: .mov)
+        _ = try FileManager.default.replaceItemAt(url, withItemAt: cut)
+    }
+}
