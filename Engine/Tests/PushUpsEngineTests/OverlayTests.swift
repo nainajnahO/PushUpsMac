@@ -7,7 +7,8 @@ import Testing
 func overlayIsTheAthlete(name: String) throws {
     let poses = try Poses(contentsOf: golden(name, "poses-vision.json"))
     let analysis = RepCounter(poses: poses, settings: Settings())
-    for frame in stride(from: 0, to: poses.frames.count, by: 7) {
+    // Walk-in starts before anybody is in frame; `overlayHoldsTheAthlete` covers a frame without the athlete.
+    for frame in stride(from: 0, to: poses.frames.count, by: 7) where !poses.frames[frame].joints.isEmpty {
         let overlay = try #require(analysis.overlay(atFrame: frame, tolerance: 14))
         #expect(overlay.joints == poses.frames[frame].joints.mapValues(\.location))
         let reading = analysis.line[frame]

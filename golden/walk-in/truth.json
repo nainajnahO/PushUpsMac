@@ -1,0 +1,16 @@
+{
+  "clip": "walk-in.mov",
+  "shows": "Recorded live by the app: setting the phone down, walking the feet back into a plank, seven clean reps, then down to the knees and up. The poses are the ones it was counted with live. Counted 1 rep live, as the arm was measured during the walk-in (9.5 s), before the plank was settled.",
+  "facing": "left",
+  "trim_seconds": null,
+  "reps": 7,
+  "per_rep": [
+    {"rep": 1, "reason": "full", "back": "straight"},
+    {"rep": 2, "reason": "full", "back": "straight"},
+    {"rep": 3, "reason": "full", "back": "straight"},
+    {"rep": 4, "reason": "full", "back": "straight"},
+    {"rep": 5, "reason": "full", "back": "straight"},
+    {"rep": 6, "reason": "full", "back": "straight"},
+    {"rep": 7, "reason": "full", "back": "straight"}
+  ]
+}

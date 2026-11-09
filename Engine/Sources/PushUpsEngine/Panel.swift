@@ -63,7 +63,7 @@ public struct PanelView: View {
             GeometryReader { geometry in
                 HStack(spacing: 12) {
                     VStack(spacing: 12) {
-                        GroupBox("Shoulder height, in arm lengths") { heightChart }
+                        GroupBox("Elbow, in degrees") { elbowChart }
                         GroupBox("Body line, in degrees") { lineChart }
                     }
                     GroupBox("Push-up time per rep, in seconds") { timesChart }
@@ -137,37 +137,35 @@ public struct PanelView: View {
         }
     }
 
-    /// The shoulder's height above the wrist, as the grade reads it, with the up and floor lines; each rep's
-    /// deepest point and lockout marked by whether it got there.
-    private var heightChart: some View {
-        let up = settings.romUpFraction * counter.top, floor = settings.romDownHeight
-        let height = displaySmoothed(counter.heightReading, times: counter.times)
-        let seen = height.filter(\.isFinite)
-        let low = min(seen.min() ?? floor, floor) - 0.1, high = max(seen.max() ?? 1, up.isFinite ? up : 1) + 0.1
+    /// The far elbow's angle, as the grade reads it, with the up and floor lines; each rep's deepest point and
+    /// lockout marked by whether it got there.
+    private var elbowChart: some View {
+        let up = RepCounter.upAngle, floor = RepCounter.floorAngle
+        let elbow = displaySmoothed(counter.elbowReading, times: counter.times)
+        let seen = elbow.filter(\.isFinite)
+        let low = min(seen.min() ?? floor, floor) - 10, high = max(seen.max() ?? up, up) + 10
         let marks = counter.reps.flatMap { rep in
             [(rep.bottomFrame, rep.grade.bottomOK ? "Reached" : "Short"),
              (rep.lockoutFrame, rep.grade.topOK ? "Reached" : "Short")]
         }.compactMap { frame, label in
-            frame < height.count && height[frame].isFinite ? (time: time(frame), value: height[frame], label: label) : nil
+            frame < elbow.count && elbow[frame].isFinite ? (time: time(frame), value: elbow[frame], label: label) : nil
         }
         return Chart {
-            ForEach(Array(points(height).enumerated()), id: \.offset) { _, point in
-                LineMark(x: .value("Time", point.time), y: .value("Arm lengths", point.value),
+            ForEach(Array(points(elbow).enumerated()), id: \.offset) { _, point in
+                LineMark(x: .value("Time", point.time), y: .value("Degrees", point.value),
                          series: .value("Run", point.run))
                     .foregroundStyle(.tint)
             }
-            if up.isFinite {
-                RuleMark(y: .value("Up", up))
-                    .foregroundStyle(Color.secondary)
-                    .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
-                    .annotation(position: .top, alignment: .leading) { Text("Up").font(.caption).foregroundStyle(.secondary) }
-            }
+            RuleMark(y: .value("Up", up))
+                .foregroundStyle(Color.secondary)
+                .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                .annotation(position: .top, alignment: .leading) { Text("Up").font(.caption).foregroundStyle(.secondary) }
             RuleMark(y: .value("Floor", floor))
                 .foregroundStyle(Color.secondary)
                 .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
                 .annotation(position: .bottom, alignment: .leading) { Text("Floor").font(.caption).foregroundStyle(.secondary) }
             ForEach(Array(marks.enumerated()), id: \.offset) { _, mark in
-                PointMark(x: .value("Time", mark.time), y: .value("Arm lengths", mark.value))
+                PointMark(x: .value("Time", mark.time), y: .value("Degrees", mark.value))
                     .foregroundStyle(by: .value("Grade", mark.label))
                     .symbol(by: .value("Grade", mark.label))
             }
@@ -303,7 +301,7 @@ private func seconds(_ value: Double, digits: Int = 2) -> String {
 
 /// How much the panel's curves are smoothed, for display only: a Gaussian's σ, in seconds. At 80 ms the grade's
 /// readings, a 5-frame median, lose their steps and come out as smooth at 24, 30 and 60 fps (measured on the six
-/// test clips); a rep's marks move by at most 0.03 arm lengths.
+/// test clips).
 let displaySmoothingSeconds = 0.08
 
 /// `series`, a value a frame for the frames shown at `times`, smoothed for display by a Gaussian of `sigma` seconds,

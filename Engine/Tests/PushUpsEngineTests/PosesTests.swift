@@ -24,16 +24,22 @@ func golden(_ components: String...) -> URL {
 
 /// The clips with Vision poses in golden/, made by `pushups-cli poses clips/<clip>.mov -o
 /// golden/<clip>/poses-vision.json`, with `--trim` set to the clip's `trim_seconds` in truth.json
-/// (half-reps: `--trim 8`, as the athlete stands up after 8 s).
-let clipNames = ["clean-left", "clean-right", "fast-reps", "half-reps", "hips-high", "hips-low"]
+/// (half-reps: `--trim 8`, as the athlete stands up after 8 s). Walk-in's are the poses the app recorded live, in
+/// the movie (`Poses.recorded(in:)`): the ones it counted 1 rep from.
+let clipNames = ["clean-left", "clean-right", "fast-reps", "half-reps", "hips-high", "hips-low", "walk-in"]
 
-/// Every golden poses file: a frame per frame of the clip, in the order shown, each joint inside the
-/// frame. Every frame of the six clips has the athlete on it.
+/// Every golden poses file: a frame per frame of the clip, in the order shown. The six phone clips are 4K, with
+/// the athlete on every frame and each joint inside it. Walk-in, filmed by the app's camera at 1280 × 720, starts
+/// before anybody is in frame, and Vision places an arm or a leg just past the frame's edge.
 @Test(arguments: clipNames)
 func goldenPosesAreTimed(name: String) throws {
     let poses = try Poses(contentsOf: golden(name, "poses-vision.json"))
-    #expect((poses.width, poses.height) == (3840, 2160))
     #expect(zip(poses.frames, poses.frames.dropFirst()).allSatisfy { $0.time < $1.time })
+    guard name != "walk-in" else {
+        #expect((poses.width, poses.height) == (1280, 720))
+        return
+    }
+    #expect((poses.width, poses.height) == (3840, 2160))
     #expect(poses.frames.allSatisfy { !$0.joints.isEmpty })
     let locations = poses.frames.flatMap(\.joints.values).map(\.location)
     #expect(locations.allSatisfy { (0...1).contains($0.x) && (0...1).contains($0.y) })

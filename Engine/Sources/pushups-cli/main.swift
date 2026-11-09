@@ -12,8 +12,8 @@ case "poses":
     guard let output = option("-o"), let path = arguments.first, arguments.count == 1 else { usage() }
     try await writePoses(of: URL(filePath: path), to: URL(filePath: output), trim: trim)
 case "analyze":
-    // pushups-cli analyze <clip | poses.json> [--trim S] [--down ARMS] [--up FRACTION]
-    // [--back-tolerance DEG] [--metric moving|ascent]: prints the reps.
+    // pushups-cli analyze <clip | poses.json> [--trim S] [--back-tolerance DEG] [--metric moving|ascent]:
+    // prints the reps.
     arguments.removeFirst()
     let settings = settingOptions()
     let trim = option("--trim").map { number($0) as Double }
@@ -48,11 +48,11 @@ default:
 func usage() -> Never {
     print("""
         Usage: pushups-cli poses <clip> -o <poses.json> [--trim SECONDS]
-               pushups-cli analyze <clip | poses.json> [--trim SECONDS] [--down ARMS] [--up FRACTION]
-                                   [--back-tolerance DEG] [--metric moving|ascent]
+               pushups-cli analyze <clip | poses.json> [--trim SECONDS] [--back-tolerance DEG]
+                                   [--metric moving|ascent]
                pushups-cli live <clip> [--size WIDTHxHEIGHT] [--trim SECONDS] [--compare <poses.json>] [--speak]
                                 [--record <movie.mov>] [--loop TIMES]
-                                [--down ARMS] [--up FRACTION] [--back-tolerance DEG]
+                                [--back-tolerance DEG]
                pushups-cli speed <poses.json> [--minutes MINUTES]
         """)
     exit(1)
@@ -94,8 +94,6 @@ func badValue<T>() -> T {
 /// The analysis settings from the command line, the app's defaults otherwise.
 @MainActor func settingOptions() -> Settings {
     var settings = Settings()
-    option("--down").map { settings.romDownHeight = number($0) }
-    option("--up").map { settings.romUpFraction = number($0) }
     option("--back-tolerance").map { settings.backToleranceDegrees = number($0) }
     option("--metric").map { settings.metric = Metric(rawValue: $0) ?? badValue() }
     return settings
@@ -117,11 +115,17 @@ func writePoses(of url: URL, to output: URL, trim: Double?) async throws {
         """)
 }
 
-/// The reps in a clip (posed by Vision first) or in a poses JSON, one line each, and the tallies.
+/// The reps in a clip or in a poses JSON, one line each, and the tallies. A clip is posed as the app opens it: a
+/// recorded live set by the poses it was counted with, any other by Vision.
 func printAnalysis(of url: URL, settings: Settings, trim: Double?) async throws {
-    let poses = url.pathExtension.lowercased() == "json"
-        ? try Poses(contentsOf: url)
-        : try await Poses.detect(in: url, trim: trim)
+    let poses: Poses
+    if url.pathExtension.lowercased() == "json" {
+        poses = try Poses(contentsOf: url)
+    } else if let recorded = try await Poses.recorded(in: url) {
+        poses = recorded
+    } else {
+        poses = try await Poses.detect(in: url, trim: trim)
+    }
     let counter = RepCounter(poses: poses, settings: settings)
     let (full, straight, graded) = counter.tally
     guard let plank = counter.plank else {
@@ -129,13 +133,12 @@ func printAnalysis(of url: URL, settings: Settings, trim: Double?) async throws 
         return
     }
     print("\(poses.source): \(counter.count) reps, \(full)/\(graded) full range, "
-          + "\(straight)/\(graded) straight back; plank at \(fixed(counter.times[plank.frame], 2)) s (frame \(plank.frame)), "
-          + "arm \(fixed(plank.arm, 3)) frame heights, level \(fixed(plank.level, 2))")
+          + "\(straight)/\(graded) straight back; plank at \(fixed(counter.times[plank.frame], 2)) s (frame \(plank.frame))")
     for rep in counter.reps {
         let (row, grade) = (rep.row(metric: settings.metric), rep.grade)
         print("rep \(row.id)  at \(fixed(row.startSeconds, 2)) s  down \(fixed(row.downSeconds, 2)) s  "
               + "pause \(fixed(row.pauseSeconds, 2)) s  push-up \(fixed(row.pushUpSeconds, 2)) s  "
-              + "\(grade.reason) (bottom \(fixed(grade.bottomHeight, 2)), top \(fixed(grade.topHeight, 2))"
-              + " of \(fixed(grade.topRequired, 2))), \(grade.backLabel) (\(fixed(grade.backWorst, 1))°)")
+              + "\(grade.reason) (elbow \(fixed(grade.bottomAngle, 0))° at the bottom, \(fixed(grade.topAngle, 0))° at lockout), "
+              + "\(grade.backLabel) (\(fixed(grade.backWorst, 1))°)")
     }
 }

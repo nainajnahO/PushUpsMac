@@ -22,6 +22,9 @@ in `golden/*/truth.json` are now the only yardstick.
 - **Privacy: clips stay out of the repository** (`clips/` is ignored). `golden/` holds only what the tests need:
   Vision's keypoints for each test clip (a stick figure per frame, no image) and your own counts.
 - **Repository:** public on GitHub, Apache-2.0, crediting vision-demos and Jeremy Park.
+- **Counting: the elbow's angle, with fixed cut-offs,** read off the far arm: a rep below 130°, to the floor at 115°,
+  back up past 140°. The shoulder's height before it was in arm lengths, measured once at the plank; measured while
+  you were still walking into it, it counted seven clean reps as one (walk-in).
 
 ## What the port measured
 
@@ -71,7 +74,8 @@ live and afterwards (#57).
 Six clips of one person in one room, filmed landscape, side-on, with the phone at floor level and the whole body in
 frame: a clean set facing each way, hips sagging, hips piked, half reps, and fast reps. All six are HDR (HLG); one is
 60 fps. Each has your count and per-rep notes in `golden/<clip>/truth.json`. Anything tuned on them may only fit you,
-so new clips (another angle, another person) are held out of tuning.
+so new clips (another angle, another person) are held out of tuning. The first of those is walk-in, recorded by the app
+at 1280 × 720: setting the phone down, walking into the plank, and seven reps.
 
 ## Phases
 
