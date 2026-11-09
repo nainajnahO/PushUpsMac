@@ -42,7 +42,7 @@
   body first, and walking into position doesn't throw the count off. Change how straight your back must stay, and the
   set is graded again at once.
 
-<!-- Screenshot: a live set in progress: the camera's picture with the overlay on the body, the reps in the sidebar, and the panel's charts under the picture -->
+<!-- Screenshot: a live set in progress: the camera's picture with the overlay on the body, and the panel's totals and charts under the picture -->
 
 The [user guide](docs/guide.md) takes you through a live set, opening a clip, the Progress tab and every setting.
 

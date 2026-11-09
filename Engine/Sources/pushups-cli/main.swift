@@ -135,9 +135,9 @@ func printAnalysis(of url: URL, settings: Settings, trim: Double?) async throws 
     print("\(poses.source): \(counter.count) reps, \(full)/\(graded) full range, "
           + "\(straight)/\(graded) straight back; plank at \(fixed(counter.times[plank.frame], 2)) s (frame \(plank.frame))")
     for rep in counter.reps {
-        let (row, grade) = (rep.row(metric: settings.metric), rep.grade)
-        print("rep \(row.id)  at \(fixed(row.startSeconds, 2)) s  down \(fixed(row.downSeconds, 2)) s  "
-              + "pause \(fixed(row.pauseSeconds, 2)) s  push-up \(fixed(row.pushUpSeconds, 2)) s  "
+        let grade = rep.grade
+        print("rep \(rep.number)  at \(fixed(rep.descentTime, 2)) s  down \(fixed(rep.eccentricSeconds, 2)) s  "
+              + "pause \(fixed(rep.pauseSeconds, 2)) s  push-up \(fixed(rep.seconds(settings.metric), 2)) s  "
               + "\(grade.reason) (elbow \(fixed(grade.bottomAngle, 0))° at the bottom, \(fixed(grade.topAngle, 0))° at lockout), "
               + "\(grade.backLabel) (\(fixed(grade.backWorst, 1))°)")
     }
