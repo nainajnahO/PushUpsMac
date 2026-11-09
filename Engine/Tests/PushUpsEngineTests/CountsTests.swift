@@ -16,8 +16,8 @@ struct Truth: Decodable {
 /// The misses Vision's poses and the default settings make against your notes, and where each is
 /// worked on. A known issue that stops happening fails the test, so the table stays true.
 let knownMisses: [String: String] = [
-    "down hips-low 1": "Rep 1 reads 0.66 at the bottom, over 0.60; the half rep reads 0.63 (#57)",
-    "back half-reps 1": "Rep 1's body line reads +14.5°, past 14° (#56)",
+    "down hips-low 1": "Rep 1's elbow reads 120° at the bottom, over 115°; half-reps' upper half reads 117° (#57)",
+    "back walk-in 7": "Rep 7's body line reads −15.4°, past 14°",
 ]
 
 /// Vision's poses through the counter with the default settings, held against your counts: the number
@@ -41,17 +41,15 @@ func countsAgainstTruth(name: String) throws {
     print("\(name): \(analysis.count) reps (yours \(truth.reps)); " + pairs.map { "\($1.rep): \($0.reason), \($0.backLabel)" }.joined(separator: "; "))
 }
 
-/// A setting changes the grades without posing again: hips-low's first rep, 0.66 at the bottom, is
-/// full at a down height of 0.70, and its sag (−19° at worst) passes at 20°.
+/// A setting changes the grades without posing again: hips-low's sag (−19° at worst) passes at a back
+/// tolerance of 20°, and the range, read off the elbow, stays as it was.
 @Test func changingASettingRegrades() throws {
     let poses = try Poses(contentsOf: golden("hips-low", "poses-vision.json"))
     var settings = Settings()
-    #expect(RepCounter(poses: poses, settings: settings).reps.map(\.complete) == [false, true, true])
     #expect(RepCounter(poses: poses, settings: settings).reps.map(\.straight) == [false, false, false])
-    settings.romDownHeight = 0.70
     settings.backToleranceDegrees = 20
-    #expect(RepCounter(poses: poses, settings: settings).reps.map(\.complete) == [true, true, true])
     #expect(RepCounter(poses: poses, settings: settings).reps.map(\.straight) == [true, true, true])
+    #expect(RepCounter(poses: poses, settings: settings).reps.map(\.complete) == [false, true, true])
 }
 
 /// Fed one frame at a time, as live: after every frame the reps so far are the first reps of the whole
@@ -69,7 +67,9 @@ func repsNeverChangeOnceCounted(name: String) throws {
     }
     live.finish()
     #expect(live.reps == whole.reps)
-    #expect(live.height == whole.height && live.plank == whole.plank)
+    // NaN where Vision missed a joint, which `==` never matches.
+    #expect(zip(live.elbow, whole.elbow).allSatisfy { $0 == $1 || $0.isNaN && $1.isNaN })
+    #expect(live.elbow.count == whole.elbow.count && live.plank == whole.plank)
     // Each rep is counted five frames after it locks out (a sixth of a second at 30 fps), or at the end of
     // the set if it locks out less than five frames before, or doesn't come back up.
     for rep in live.reps {

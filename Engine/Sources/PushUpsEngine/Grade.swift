@@ -3,12 +3,10 @@ import Foundation
 /// One rep's form: how far down, how far back up, how straight. Every reading is an extreme of a 5-frame
 /// median, so one bad pose can't decide a rep.
 public struct Grade: Sendable, Equatable {
-    /// The shoulder above the wrist at the deepest point, arm lengths.
-    public var bottomHeight: Double
+    /// The far elbow at the deepest point, degrees.
+    public var bottomAngle: Double
     /// ...at lockout.
-    public var topHeight: Double
-    /// What lockout had to reach: a share of the plank.
-    public var topRequired: Double
+    public var topAngle: Double
     /// The body-line reading furthest from straight, signed degrees.
     public var backWorst: Double
     public var bottomOK: Bool
@@ -27,19 +25,16 @@ public struct Grade: Sendable, Equatable {
     }
 
     /// Grades the rep spanning `span` (descent to lockout) with its push `push`, positions in the per-frame
-    /// readings: `height` the shoulder above the wrist and `line` the body line, each through a 5-frame
-    /// median. `plank` is the plank's level.
-    init(height: [Double], line: [Double], plank: Double, span: ClosedRange<Int>, push: ClosedRange<Int>,
-         settings: Settings) {
-        bottomHeight = extreme(height[span], by: <)
-        topHeight = extreme(height[push], by: >)
-        topRequired = settings.romUpFraction * plank
+    /// readings: `elbow` the far elbow's angle and `line` the body line, each through a 5-frame median.
+    init(elbow: [Double], line: [Double], span: ClosedRange<Int>, push: ClosedRange<Int>, settings: Settings) {
+        bottomAngle = extreme(elbow[span], by: <)
+        topAngle = extreme(elbow[push], by: >)
         // The first reading furthest from straight.
         let readings = line[span].filter(\.isFinite)
         backWorst = readings.reduce(Double.nan) { worst, x in worst.isNaN || abs(x) > abs(worst) ? x : worst }
         // An end Vision couldn't see counts as short.
-        bottomOK = bottomHeight.isFinite && bottomHeight <= settings.romDownHeight
-        topOK = topHeight.isFinite && topHeight >= topRequired
+        bottomOK = bottomAngle.isFinite && bottomAngle <= RepCounter.floorAngle
+        topOK = topAngle.isFinite && topAngle >= RepCounter.upAngle
         backOK = backWorst.isFinite && abs(backWorst) <= settings.backToleranceDegrees
     }
 }

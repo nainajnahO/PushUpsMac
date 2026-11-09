@@ -33,13 +33,14 @@
   low", "hips high".
 - **Every set recorded.** The video and the poses it was counted with go to Movies › PushUpsMac, and the set reopens
   as a clip with the count and grades it had live.
-- **Clips too.** Open a clip you filmed earlier and it's counted the same way, with charts of your shoulder's height,
+- **Clips too.** Open a clip you filmed earlier and it's counted the same way, with charts of your elbow's angle,
   your body line and each rep's time following the playhead.
 - **Your progress.** Every set in a history by day, week, month or year, beside this week against last, days in a
   row, and your form and pace over time and within a set. Remove a miscounted rep, delete or merge sets, and undo any
   of it.
-- **Settings that recount at once.** Change how far down and back up a rep must go, or how straight your back must
-  stay, and the set is counted again at once.
+- **Counted off your elbow.** A rep is your elbow bending and straightening again, so nothing is measured off your
+  body first, and walking into position doesn't throw the count off. Change how straight your back must stay, and the
+  set is graded again at once.
 
 <!-- Screenshot: a live set in progress: the camera's picture with the overlay on the body, the reps in the sidebar, and the panel's charts under the picture -->
 
@@ -47,18 +48,20 @@ The [user guide](docs/guide.md) takes you through a live set, opening a clip, th
 
 ## How well it counts
 
-The test clips are six sets by one person, filmed as [Film yourself](#film-yourself) says and graded by hand: a clean
-set facing each way, hips sagging, hips piked, half reps and fast reps. With the default settings:
+The test clips are seven sets by one person, graded by hand. Six were filmed on an iPhone as
+[Film yourself](#film-yourself) says: a clean set facing each way, hips sagging, hips piked, half reps and fast reps.
+The seventh was recorded by the app itself, from setting the phone down and walking into the plank. With the default
+settings:
 
 | | By hand | PushUpsMac |
 |---|---|---|
-| Push-ups | 19 | 19 |
-| Range of motion | 17 full, 2 half | 18 of 19 graded the same |
-| Back | 13 straight, 6 bent | 18 of 19 graded the same |
+| Push-ups | 26 | 26 |
+| Range of motion | 24 full, 2 half | 25 of 26 graded the same |
+| Back | 20 straight, 6 bent | 25 of 26 graded the same |
 
-The two it grades differently sit just past the defaults. One full rep's shoulder came down to 0.66 arm lengths,
-against the 0.60 the down height asks for, and one straight back read 14.5°, against a tolerance of 14°. The defaults
-were set on these same clips, so they may suit their one person best. If your grades look off, the
+The two it grades differently sit just past the cut-offs. One full rep's elbow bent to 120°, against the 115° that
+counts as the floor, and one straight back read −15.4°, against a tolerance of 14°. The angles were set on
+the six iPhone clips, so they may suit their one person best. If your back grades look off, the
 [user guide](docs/guide.md#settings) says which setting to change.
 
 On a MacBook Pro with an M1 Pro:
@@ -81,7 +84,7 @@ Everything stays on your Mac:
   a deleted set's recording to the Trash.
 
 This repository holds no video of its test clips either. The tests use stick figures (Vision's joints for each frame
-of six clips) and counts in `golden/`. The clips themselves stay on the Mac they were filmed for. The demo at the top
+of seven clips) and counts in `golden/`. The clips themselves stay on the Mac they were filmed for. The demo at the top
 is a stock clip from Pexels.
 
 ## Get started
@@ -117,8 +120,7 @@ The first time you turn on the camera, macOS asks whether PushUpsMac may use it.
 
 ### Film yourself
 
-The app sees you from one side and measures the side nearer the camera, so the set-up matters more than anything
-else:
+The app sees you from one side, so the set-up matters more than anything else:
 
 - **Landscape:** turn the iPhone on its side.
 - **On the floor:** stand the phone on the floor, at your level, not on a table looking down.
@@ -128,7 +130,7 @@ else:
 
 <!-- Screenshot: the camera's picture of a good set-up: side-on at floor level, the whole body in frame, the overlay on the near arm and the body line -->
 
-The default settings were set on six clips of one person filmed this way. If your camera stands elsewhere, or the
+The counting and the default settings were set on six clips of one person filmed this way. If your camera stands elsewhere, or the
 grades don't match what you did, see the [user guide](docs/guide.md#every-setting).
 
 Then turn on the camera and do a set: the [user guide](docs/guide.md#count-a-live-set) takes it from there.
@@ -155,8 +157,9 @@ The tests that read the clips themselves are skipped without them, since the cli
 
 Inspired by the [push-ups demo](https://github.com/jeremyipark/vision-demos/tree/main/push_ups) in
 [vision-demos](https://github.com/jeremyipark/vision-demos) by Jeremy Park, licensed under Apache-2.0. The method
-(counting reps from the shoulder's height above the wrist, timing each rep's phases, and grading its range of motion
-and body line) comes from it. PushUpsMac is licensed under Apache-2.0 as well (see [LICENSE](LICENSE)).
+(counting reps from a pose model's joints, timing each rep's phases, and grading its range of motion and body line)
+comes from it; PushUpsMac counts off the elbow's angle where the demo uses the shoulder's height. PushUpsMac is
+licensed under Apache-2.0 as well (see [LICENSE](LICENSE)).
 
 The demo at the top is made from [a clip by olia danilevich](https://www.pexels.com/video/man-doing-push-ups-4964650/)
 on Pexels, under the [Pexels License](https://www.pexels.com/license/).

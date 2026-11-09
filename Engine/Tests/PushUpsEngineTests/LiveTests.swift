@@ -78,12 +78,18 @@ private func blankFrame(at time: Double) throws -> CMReadySampleBuffer<CVReadOnl
     #expect(worst < 0.01)
 }
 
-/// What dropping two frames in three changes: at 8 poses a second (10 on fast-reps) the deepest frame can fall
-/// between the frames kept. Live, Vision poses 23–30 a second, so these stay a stress measurement (#23).
+/// What dropping frames changes: at 6–15 poses a second (walk-in was posed at 18 a second live, so it drops to 6–9)
+/// the straightest frame can fall between the frames kept, a rep's span moves by a frame or two, and a body line close
+/// to the back tolerance can land either side of it. Live, Vision poses 18–30 a second, so these stay a stress
+/// measurement (#23).
 private let knownDropMisses: [String: String] = [
-    "clean-right 3 3": "Rep 3 locks out as the clip ends; with one frame in three its top reads 0.84 of the 0.87 needed",
-    "hips-low 3 2": "Rep 2's bottom reads 0.614 against 0.581 with every frame, over the 0.60 down height",
-    "hips-low 3 3": "Rep 3's bottom reads 0.601 against 0.580 with every frame, over the 0.60 down height",
+    "clean-right 3 3": "Rep 3 locks out as the clip ends; with one frame in three its top reads 135° against 146°, under 140°",
+    "hips-low 3 count": "Rep 3 locks out as the clip ends; with one frame in three the elbow is back to only 140° on the last frame, and a rep still down at the end with the body line −14.5° isn't counted (#42)",
+    "back half-reps 2 1": "Rep 1's body line reads 14.5° against 12.5° with every frame, either side of 14° (#56)",
+    "back half-reps 3 1": "Rep 1's body line reads 14.5° against 12.5° with every frame, either side of 14° (#56)",
+    "back walk-in 2 1": "Rep 1's body line reads 15.6° against −13.6° with every frame",
+    "back walk-in 3 1": "Rep 1's body line reads 19.4° against −13.6° with every frame",
+    "back walk-in 3 7": "Rep 7's body line reads 25.4° against −15.4° with every frame",
 ]
 
 /// Frames Vision had no time for, dropped in a fixed pattern from each clip's poses: every second frame (a
@@ -97,20 +103,23 @@ func droppedFramesKeepTheGrades(name: String, every: Int) throws {
     var kept = poses
     kept.frames = poses.frames.enumerated().filter { $0.offset % every == 0 }.map(\.element)
     let thinned = RepCounter(poses: kept, settings: Settings())
+    func compared(_ rep: Rep, _ original: Rep) -> String {
+        let (a, b) = (rep.grade, original.grade)
+        let against = { (x: Double, y: Double) in String(format: "%.1f° against %.1f°", x, y) }
+        return "\(rep.number): \(a.reason), \(a.backLabel) (bottom \(against(a.bottomAngle, b.bottomAngle)), "
+            + "top \(against(a.topAngle, b.topAngle)), back \(against(a.backWorst, b.backWorst)))"
+    }
     print("\(name), 1 frame in \(every): \(thinned.count) reps (\(whole.count) with every frame); "
-          + zip(thinned.reps, whole.reps).map { "\($0.number): \($0.grade.reason), \($0.grade.backLabel) (bottom "
-              + String(format: "%.3f", $0.grade.bottomHeight) + " against " + String(format: "%.3f", $1.grade.bottomHeight)
-              + ", top " + String(format: "%.2f", $0.grade.topHeight) + " of " + String(format: "%.2f", $0.grade.topRequired)
-              + ", back " + String(format: "%.1f", $0.grade.backWorst) + "° against " + String(format: "%.1f", $1.grade.backWorst) + "°)" }
-              .joined(separator: "; "))
-    #expect(thinned.count == whole.count)
+          + zip(thinned.reps, whole.reps).map(compared).joined(separator: "; "))
+    func check(_ key: String, _ body: () -> Void) {
+        if let miss = knownDropMisses[key] { withKnownIssue(Comment(rawValue: miss), body) } else { body() }
+    }
+    check("\(name) \(every) count") { #expect(thinned.count == whole.count) }
     for (rep, original) in zip(thinned.reps, whole.reps) {
-        if let miss = knownDropMisses["\(name) \(every) \(rep.number)"] {
-            withKnownIssue(Comment(rawValue: miss)) { #expect(rep.grade.reason == original.grade.reason, "rep \(rep.number)") }
-        } else {
-            #expect(rep.grade.reason == original.grade.reason, "rep \(rep.number)")
+        check("\(name) \(every) \(rep.number)") { #expect(rep.grade.reason == original.grade.reason, "rep \(rep.number)") }
+        check("back \(name) \(every) \(rep.number)") {
+            #expect(rep.grade.backLabel == original.grade.backLabel, "rep \(rep.number)")
         }
-        #expect(rep.grade.backLabel == original.grade.backLabel, "rep \(rep.number)")
     }
 }
 
@@ -124,7 +133,7 @@ func liveSetCountsAsTheClip(name: String) throws {
     var set = LiveSet(settings: Settings())
     var counted: [Rep] = []
     var changed = Settings()
-    changed.romDownHeight = 0.70
+    changed.backToleranceDegrees = 20
     for (i, pose) in poses.frames.enumerated() {
         let frame = LiveFrame(pose: pose, presentationTime: CMTime(seconds: pose.time, preferredTimescale: 600),
                               width: poses.width, height: poses.height, arrived: .now, visionSeconds: 0)

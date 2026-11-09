@@ -250,12 +250,6 @@ struct Sidebar: View {
                 }
             }
             Section {
-                SettingSlider(title: "Down height", value: $model.settings.romDownHeight, range: 0.3...0.9, step: 0.05,
-                              text: { $0.formatted(.number.precision(.fractionLength(2))) },
-                              help: "How close the shoulder must come to the hand at the bottom, in arm lengths above the wrist, measured with the arm straight in your plank (about 1).")
-                SettingSlider(title: "Up", value: $model.settings.romUpFraction, range: 0.7...1, step: 0.01,
-                              text: { $0.formatted(.percent.precision(.fractionLength(0))) },
-                              help: "How far back up a rep must come at lockout, as a share of your plank height.")
                 SettingSlider(title: "Back tolerance", value: $model.settings.backToleranceDegrees, range: 5...30, step: 1,
                               text: { "±\(Int($0))°" },
                               help: "How far the body line may bend, hips low or high, from descent to lockout.")

@@ -53,7 +53,7 @@ Then the clip plays from the start:
 - **Click a rep** in the sidebar to jump to where it starts.
 - **The panel** under the clip shows the whole set:
   - the push-ups, their average push-up time, and how many had full range and a straight back;
-  - your shoulder's height, with the lines a rep must reach at the bottom and at the top;
+  - your elbow's angle, with the lines a rep must reach at the bottom and at the top;
   - your body line, with the limits past which the hips count as low or high;
   - each rep's push-up time.
 
@@ -121,8 +121,6 @@ Every setting the app has, where to find it, what it does, its default, and when
 | Say each rep's number | Sidebar › Live | On | No |
 | Add a cue for a short rep or a bent back | Sidebar › Live | On | No |
 | Record each set | Sidebar › Live | On | No |
-| Down height | Sidebar › Settings | 0.60 | No |
-| Up | Sidebar › Settings | 90% | No |
 | Back tolerance | Sidebar › Settings | ±14° | No |
 | Push-up time | Sidebar › Settings | Moving | No |
 | Camera | Toolbar, while the camera is on | The Mac's own camera, until you pick one | Yes |
@@ -156,27 +154,21 @@ These are for counting from the camera.
 
 ### Settings
 
-These decide what counts as a full rep and a straight back, and which time a rep shows. A change counts the open clip,
-or the live set so far, again at once. Sets already in your history keep the grades they were counted with.
+These decide what counts as a straight back, and which time a rep shows. A change counts the open clip, or the live
+set so far, again at once. Sets already in your history keep the grades they were counted with.
 
-**Restore Defaults** puts all four back.
+**Restore Defaults** puts both back.
 
-**Down height:**
-- **What it does:** how close your shoulder must come to your hand at the bottom, in arm lengths above the wrist.
-  An arm length is measured with the arm straight in your plank, so the top of a push-up reads about 1. A rep whose
-  shoulder doesn't get this low is "not to the floor".
-- **Default:** 0.60. The full reps it was set on bottomed out at 0.34–0.58, and a half rep at 0.63.
-- **Range:** 0.30 to 0.90.
-- **When to change it:** raise it if reps you went all the way down on are marked "not to the floor". Lower it to
-  ask for a deeper push-up.
+What counts as a rep and a full one isn't a setting. It's read off your elbow, as an angle, so it doesn't change with
+how far you are from the camera or how long your arms are:
 
-**Up:**
-- **What it does:** how far back up a rep must come at the top, as a share of your plank height. A rep that stops
-  short of it is "not back up".
-- **Default:** 90%.
-- **Range:** 70% to 100%.
-- **When to change it:** lower it if reps you locked out are marked "not back up". Raise it to ask for straighter
-  arms at the top.
+- **A rep** starts when your elbow bends past 130° and ends when it straightens past 140° again.
+- **"Not to the floor":** the elbow didn't bend to 115° or less at the bottom.
+- **"Not back up":** it didn't straighten past 140° at the top, usually because the set ended halfway up.
+
+The numbers are lower than the 90° and 180° you might expect: Vision reads a straight arm as about 150–170°, and the
+arm it reads is the one farther from the camera, which it partly guesses behind your body. On the test clips, that arm
+followed half reps where the nearer one didn't.
 
 **Back tolerance:**
 - **What it does:** how far your body line may bend, hips low or high, from the start of the descent to the top. The
@@ -208,8 +200,9 @@ or the live set so far, again at once. Sets already in your history keep the gra
 ### Overlay
 
 **Show Whole Skeleton** (**View › Show Whole Skeleton**, ⇧⌘K):
-- **What it does:** off, the overlay draws only what's measured: your near arm, and the body line in place of your
-  torso and leg. On, it draws both sides of the body, with the body line over them.
+- **What it does:** off, the overlay draws your near arm, and the body line in place of your torso and leg. The count
+  reads the elbow of the arm farther from the camera, which the overlay doesn't draw. On, it draws both sides of the
+  body, with the body line over them.
 - **Default:** off.
 - **When to change it:** turn it on to check that Vision has found your body correctly, if the count seems off.
 

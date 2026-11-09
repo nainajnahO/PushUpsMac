@@ -180,7 +180,7 @@ func summary(_ counter: RepCounter) -> String {
 /// A rep's grade, with its readings.
 func describe(_ rep: Rep) -> String {
     let grade = rep.grade
-    return "\(grade.reason) (bottom \(fixed(grade.bottomHeight, 3)), top \(fixed(grade.topHeight, 2)) of \(fixed(grade.topRequired, 2))), "
+    return "\(grade.reason) (elbow \(fixed(grade.bottomAngle, 1))° at the bottom, \(fixed(grade.topAngle, 1))° at lockout), "
         + "\(grade.backLabel) (\(fixed(grade.backWorst, 1))°)"
 }
 
